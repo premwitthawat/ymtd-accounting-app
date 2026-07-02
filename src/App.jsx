@@ -280,7 +280,9 @@ export default function App() {
       const taskPending = ownerTasks.filter(t => t.status === "pending");
       const done = ownerTasks.filter(t => t.status !== "pending").length;
       const over = taskPending.filter(t => getUrgency(t.dueDate, todayDate) === "over").length;
-      return { owner, companies: ownerCompanies, pending: taskPending, done, total: ownerTasks.length, over };
+      const pendingByType = {};
+      taskPending.forEach(t => (pendingByType[t.type] = (pendingByType[t.type] || 0) + 1));
+      return { owner, companies: ownerCompanies, pending: taskPending, pendingByType, done, total: ownerTasks.length, over };
     });
   }, [companies, tasks, todayDate]);
 
@@ -425,11 +427,6 @@ export default function App() {
                       todayDate={todayDate}
                       open={openPerson === p.owner}
                       onToggleOpen={() => setOpenPerson(openPerson === p.owner ? null : p.owner)}
-                      onToggle={toggle}
-                      onSkip={skip}
-                      onRestore={restore}
-                      onSetPaymentStatus={setPaymentStatus}
-                      onSetDueDate={setDueDate}
                     />
                   ))}
                 </>
