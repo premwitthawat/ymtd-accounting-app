@@ -4,7 +4,8 @@ import { supabase } from "../lib/supabaseClient";
 
 const ROLE_LABEL = { owner: "เจ้าของ", manager: "ผู้จัดการ", employee: "พนักงาน" };
 
-export default function AdminUsersPanel({ open, onClose }) {
+export default function AdminUsersPanel({ open, onClose, profile }) {
+  const isManager = profile?.role === "manager";
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -110,28 +111,32 @@ export default function AdminUsersPanel({ open, onClose }) {
                     {!u.active && " · ปิดใช้งาน"}
                   </div>
                 </div>
-                <div className="flex items-center gap-1.5">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setResetTarget(u);
-                      setResetPin("");
-                      setError("");
-                    }}
-                    className="rounded-md border border-slate-200 p-1.5 text-slate-500 hover:border-slate-300"
-                    aria-label="ตั้งรหัส PIN ใหม่"
-                  >
-                    <RotateCcw size={14} />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => toggleActive(u)}
-                    className="rounded-md border border-slate-200 p-1.5 text-slate-500 hover:border-slate-300"
-                    aria-label={u.active ? "ปิดใช้งาน" : "เปิดใช้งาน"}
-                  >
-                    {u.active ? <UserX size={14} /> : <UserCheck size={14} />}
-                  </button>
-                </div>
+                {isManager && u.role === "owner" ? (
+                  <span className="text-xs text-slate-400">ผู้จัดการแก้ไขไม่ได้</span>
+                ) : (
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setResetTarget(u);
+                        setResetPin("");
+                        setError("");
+                      }}
+                      className="rounded-md border border-slate-200 p-1.5 text-slate-500 hover:border-slate-300"
+                      aria-label="ตั้งรหัส PIN ใหม่"
+                    >
+                      <RotateCcw size={14} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => toggleActive(u)}
+                      className="rounded-md border border-slate-200 p-1.5 text-slate-500 hover:border-slate-300"
+                      aria-label={u.active ? "ปิดใช้งาน" : "เปิดใช้งาน"}
+                    >
+                      {u.active ? <UserX size={14} /> : <UserCheck size={14} />}
+                    </button>
+                  </div>
+                )}
               </div>
             ))}
           </div>
@@ -163,13 +168,14 @@ export default function AdminUsersPanel({ open, onClose }) {
           <form onSubmit={createUser} className="flex flex-col gap-2 rounded-lg border border-slate-200 p-3 text-sm">
             <div className="font-semibold text-slate-700">เพิ่มผู้ใช้ใหม่</div>
             <select
-              value={newRole}
+              value={isManager ? "employee" : newRole}
               onChange={e => setNewRole(e.target.value)}
-              className="rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-brand-navy focus:ring-1 focus:ring-brand-navy focus:outline-none"
+              disabled={isManager}
+              className="rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-brand-navy focus:ring-1 focus:ring-brand-navy focus:outline-none disabled:bg-slate-50 disabled:text-slate-400"
             >
               <option value="employee">พนักงาน</option>
-              <option value="manager">ผู้จัดการ</option>
-              <option value="owner">เจ้าของ</option>
+              {!isManager && <option value="manager">ผู้จัดการ</option>}
+              {!isManager && <option value="owner">เจ้าของ</option>}
             </select>
             <input
               value={newLabel}

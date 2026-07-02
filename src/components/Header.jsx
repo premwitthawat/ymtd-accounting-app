@@ -30,6 +30,7 @@ export default function Header({
   onOpenAdmin,
 }) {
   const canManageUsers = profile && ["owner", "manager"].includes(profile.role);
+  const views = canManageUsers ? [...VIEWS, ["team", "ทีมงาน"]] : VIEWS;
 
   return (
     <div className="bg-brand-navy shadow-lg">
@@ -83,7 +84,7 @@ export default function Header({
 
         <div className="mt-4 flex items-center justify-between gap-2">
           <div className="flex gap-1 rounded-lg bg-white/10 p-1">
-            {VIEWS.map(([k, l]) => (
+            {views.map(([k, l]) => (
               <button
                 key={k}
                 onClick={() => setView(k)}

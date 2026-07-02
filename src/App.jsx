@@ -11,6 +11,7 @@ import AdminUsersPanel from "./components/AdminUsersPanel";
 import TypeFilterChips from "./components/TypeFilterChips";
 import DayGroup from "./components/DayGroup";
 import CompanyCard from "./components/CompanyCard";
+import PersonCard from "./components/PersonCard";
 import EmptyState from "./components/EmptyState";
 import CompletedSection from "./components/CompletedSection";
 import AddCompanyModal from "./components/AddCompanyModal";
@@ -56,6 +57,7 @@ export default function App() {
   const [typeFilter, setTypeFilter] = useState(null);
   const [showUnpaidOnly, setShowUnpaidOnly] = useState(false);
   const [openCompany, setOpenCompany] = useState(null);
+  const [openPerson, setOpenPerson] = useState(null);
   const [showAddCompany, setShowAddCompany] = useState(false);
   const [showAdminUsers, setShowAdminUsers] = useState(false);
   const [editingCompany, setEditingCompany] = useState(null);
@@ -268,6 +270,20 @@ export default function App() {
     [companies, companyServices, tasks, person, todayDate]
   );
 
+  // Team overview (owner/manager only) — always shows every staff member
+  // regardless of the "person" filter, since the point is comparing them.
+  const teamRows = useMemo(() => {
+    const owners = [...new Set(companies.map(c => c.owner))];
+    return owners.map(owner => {
+      const ownerCompanies = companies.filter(c => c.owner === owner);
+      const ownerTasks = tasks.filter(t => t.owner === owner);
+      const taskPending = ownerTasks.filter(t => t.status === "pending");
+      const done = ownerTasks.filter(t => t.status !== "pending").length;
+      const over = taskPending.filter(t => getUrgency(t.dueDate, todayDate) === "over").length;
+      return { owner, companies: ownerCompanies, pending: taskPending, done, total: ownerTasks.length, over };
+    });
+  }, [companies, tasks, todayDate]);
+
   if (authLoading) {
     return <div className="flex min-h-screen items-center justify-center bg-slate-50 text-sm text-slate-400">กำลังโหลด...</div>;
   }
@@ -394,6 +410,30 @@ export default function App() {
                   ))}
                 </>
               )}
+
+              {view === "team" && (
+                <>
+                  {teamRows.length === 0 && (
+                    <div className="rounded-xl border border-slate-200 bg-white py-16 text-center text-sm text-slate-400 shadow-sm">
+                      ยังไม่มีข้อมูลทีมงาน
+                    </div>
+                  )}
+                  {teamRows.map(p => (
+                    <PersonCard
+                      key={p.owner}
+                      p={p}
+                      todayDate={todayDate}
+                      open={openPerson === p.owner}
+                      onToggleOpen={() => setOpenPerson(openPerson === p.owner ? null : p.owner)}
+                      onToggle={toggle}
+                      onSkip={skip}
+                      onRestore={restore}
+                      onSetPaymentStatus={setPaymentStatus}
+                      onSetDueDate={setDueDate}
+                    />
+                  ))}
+                </>
+              )}
             </>
           )}
         </div>
@@ -415,7 +455,7 @@ export default function App() {
           onDeleteTaskType={deleteTaskType}
           onRenameTaskType={renameTaskType}
         />
-        <AdminUsersPanel open={showAdminUsers} onClose={() => setShowAdminUsers(false)} />
+        <AdminUsersPanel open={showAdminUsers} onClose={() => setShowAdminUsers(false)} profile={profile} />
       </div>
     </TaskTypesProvider>
   );

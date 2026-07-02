@@ -63,6 +63,11 @@ Deno.serve(async req => {
     const username = String(body.username ?? "").trim().toLowerCase();
     const pin = String(body.pin ?? "");
     if (!ROLES.includes(role)) return json({ error: "Invalid role" }, 400);
+    // Managers can only create employee accounts — owners are the only
+    // ones who can grant owner or manager access.
+    if (callerProfile.role === "manager" && role !== "employee") {
+      return json({ error: "ผู้จัดการสามารถเพิ่มได้เฉพาะพนักงานเท่านั้น" }, 403);
+    }
     if (!label) return json({ error: "Label is required" }, 400);
     if (!USERNAME_RE.test(username)) {
       return json({ error: "ID ต้องเป็นตัวอักษรเล็ก/ตัวเลข 3-20 ตัว (a-z, 0-9, _, .)" }, 400);
@@ -94,6 +99,13 @@ Deno.serve(async req => {
     if (!id) return json({ error: "Missing id" }, 400);
     if (!PIN_RE.test(pin)) return json({ error: "PIN must be at least 6 digits" }, 400);
 
+    if (callerProfile.role === "manager") {
+      const { data: target } = await admin.from("profiles").select("role").eq("id", id).single();
+      if (target?.role === "owner") {
+        return json({ error: "ผู้จัดการไม่มีสิทธิ์แก้ไขบัญชีเจ้าของ" }, 403);
+      }
+    }
+
     const { error } = await admin.auth.admin.updateUserById(id, { password: pin });
     if (error) return json({ error: error.message }, 400);
     return json({ ok: true });
@@ -103,6 +115,13 @@ Deno.serve(async req => {
     const id = String(body.id ?? "");
     const active = Boolean(body.active);
     if (!id) return json({ error: "Missing id" }, 400);
+
+    if (callerProfile.role === "manager") {
+      const { data: target } = await admin.from("profiles").select("role").eq("id", id).single();
+      if (target?.role === "owner") {
+        return json({ error: "ผู้จัดการไม่มีสิทธิ์แก้ไขบัญชีเจ้าของ" }, 403);
+      }
+    }
 
     const { error: profileErr } = await admin.from("profiles").update({ active }).eq("id", id);
     if (profileErr) return json({ error: profileErr.message }, 400);
