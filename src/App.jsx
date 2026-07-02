@@ -59,9 +59,13 @@ export default function App() {
 
   // Employees only ever see their own work — lock the person filter to
   // their own label instead of letting them switch to "ทุกคน" or others.
+  // Owner/manager get reset to "ทุกคน" on login too, so a stale filter
+  // from a previous account (e.g. an employee logged in earlier in the
+  // same browser tab) never carries over after switching accounts.
   useEffect(() => {
-    if (isEmployee && profile?.label) setPerson(profile.label);
-  }, [isEmployee, profile?.label]);
+    if (!profile) return;
+    setPerson(profile.role === "employee" ? profile.label : "ทุกคน");
+  }, [profile?.id, profile?.role, profile?.label]);
 
   const [typeFilter, setTypeFilter] = useState(null);
   const [showUnpaidOnly, setShowUnpaidOnly] = useState(false);
