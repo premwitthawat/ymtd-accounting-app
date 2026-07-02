@@ -23,15 +23,13 @@ export default function Header({
   doneCount,
   total,
   unpaidCount,
-  showUnpaidOnly,
-  onToggleUnpaidOnly,
   profile,
   onLogout,
   onOpenAdmin,
 }) {
   const canManageUsers = profile && ["owner", "manager"].includes(profile.role);
   const isEmployee = profile?.role === "employee";
-  const views = canManageUsers ? [...VIEWS, ["team", "ทีมงาน"]] : VIEWS;
+  const views = [...VIEWS, ...(canManageUsers ? [["team", "ทีมงาน"]] : []), ["unpaid", "รอลูกค้าชำระ"]];
 
   return (
     <div className="bg-brand-navy shadow-lg">
@@ -78,8 +76,8 @@ export default function Header({
             doneCount={doneCount}
             total={total}
             unpaidCount={unpaidCount}
-            showUnpaidOnly={showUnpaidOnly}
-            onToggleUnpaidOnly={onToggleUnpaidOnly}
+            unpaidActive={view === "unpaid"}
+            onClickUnpaid={() => setView("unpaid")}
           />
         </div>
 

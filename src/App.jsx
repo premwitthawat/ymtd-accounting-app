@@ -16,7 +16,7 @@ import EmptyState from "./components/EmptyState";
 import CompletedSection from "./components/CompletedSection";
 import AddCompanyModal from "./components/AddCompanyModal";
 import EditCompanyModal from "./components/EditCompanyModal";
-import UnpaidModal from "./components/UnpaidModal";
+import UnpaidList from "./components/UnpaidList";
 
 const toCompany = c => ({ id: c.id, name: c.name, short: c.short, owner: c.owner });
 const toTask = t => ({
@@ -68,7 +68,6 @@ export default function App() {
   }, [profile?.id, profile?.role, profile?.label]);
 
   const [typeFilter, setTypeFilter] = useState(null);
-  const [showUnpaidOnly, setShowUnpaidOnly] = useState(false);
   const [openCompany, setOpenCompany] = useState(null);
   const [openPerson, setOpenPerson] = useState(null);
   const [showAddCompany, setShowAddCompany] = useState(false);
@@ -324,8 +323,6 @@ export default function App() {
           doneCount={doneCount}
           total={visible.length}
           unpaidCount={unpaidTasks.length}
-          showUnpaidOnly={showUnpaidOnly}
-          onToggleUnpaidOnly={() => setShowUnpaidOnly(u => !u)}
           profile={profile}
           onLogout={logout}
           onOpenAdmin={() => setShowAdminUsers(true)}
@@ -416,6 +413,8 @@ export default function App() {
               ))}
             </>
           )}
+
+          {view === "unpaid" && <UnpaidList tasks={unpaidTasks} onMarkPaid={key => setPaymentStatus(key, "paid")} />}
         </div>
 
         <AddCompanyModal
@@ -436,12 +435,6 @@ export default function App() {
           onRenameTaskType={renameTaskType}
         />
         <AdminUsersPanel open={showAdminUsers} onClose={() => setShowAdminUsers(false)} profile={profile} />
-        <UnpaidModal
-          open={showUnpaidOnly}
-          onClose={() => setShowUnpaidOnly(false)}
-          tasks={unpaidTasks}
-          onMarkPaid={key => setPaymentStatus(key, "paid")}
-        />
       </div>
     </TaskTypesProvider>
   );

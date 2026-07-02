@@ -28,7 +28,7 @@ function StatCard({ label, value, icon: Icon, tone, muted, onClick, active }) {
   );
 }
 
-export default function StatCards({ overdue, dueSoon, doneCount, total, unpaidCount, showUnpaidOnly, onToggleUnpaidOnly }) {
+export default function StatCards({ overdue, dueSoon, doneCount, total, unpaidCount, unpaidActive, onClickUnpaid }) {
   return (
     <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 sm:gap-3">
       <StatCard label="เลยกำหนด" value={overdue} icon={AlertTriangle} tone="rose" muted={overdue === 0} />
@@ -40,8 +40,8 @@ export default function StatCards({ overdue, dueSoon, doneCount, total, unpaidCo
         icon={Banknote}
         tone="amber"
         muted={unpaidCount === 0}
-        onClick={onToggleUnpaidOnly}
-        active={showUnpaidOnly}
+        onClick={onClickUnpaid}
+        active={unpaidActive}
       />
     </div>
   );
