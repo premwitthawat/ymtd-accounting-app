@@ -2,10 +2,10 @@ import { LogOut, Settings } from "lucide-react";
 import MonthTimeline from "./MonthTimeline";
 import StatCards from "./StatCards";
 
-const VIEWS = [
-  ["urgent", "เรียงตามความด่วน"],
-  ["company", "รายบริษัท"],
-];
+const URGENT_TAB = ["urgent", "เรียงตามความด่วน"];
+const UNPAID_TAB = ["unpaid", "รอลูกค้าชำระ"];
+const TEAM_TAB = ["team", "ทีมงาน"];
+const COMPANY_TAB = ["company", "รายบริษัท"];
 
 const ROLE_LABEL = { owner: "เจ้าของ", manager: "ผู้จัดการ", employee: "พนักงาน" };
 
@@ -29,7 +29,7 @@ export default function Header({
 }) {
   const canManageUsers = profile && ["owner", "manager"].includes(profile.role);
   const isEmployee = profile?.role === "employee";
-  const views = [...VIEWS, ...(canManageUsers ? [["team", "ทีมงาน"]] : []), ["unpaid", "รอลูกค้าชำระ"]];
+  const views = [URGENT_TAB, UNPAID_TAB, ...(canManageUsers ? [TEAM_TAB] : []), COMPANY_TAB];
 
   return (
     <div className="bg-brand-navy shadow-lg">
