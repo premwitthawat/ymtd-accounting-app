@@ -17,16 +17,18 @@ export default function CompanyCard({ c, todayDate, open, onToggleOpen, onToggle
           <span className="flex shrink-0 items-center gap-2 text-xs text-slate-500">
             {c.over > 0 && <span className="font-bold text-rose-600">เลยกำหนด {c.over}</span>}
             <span>{c.owner} · <span className="font-mono">{c.done}/{c.total}</span></span>
-            <button
-              onClick={e => {
-                e.stopPropagation();
-                onEdit(c);
-              }}
-              aria-label="แก้ไขบริษัท"
-              className="rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
-            >
-              <Pencil size={14} />
-            </button>
+            {onEdit && (
+              <button
+                onClick={e => {
+                  e.stopPropagation();
+                  onEdit(c);
+                }}
+                aria-label="แก้ไขบริษัท"
+                className="rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+              >
+                <Pencil size={14} />
+              </button>
+            )}
             <ChevronDown size={16} className={`text-slate-400 transition-transform ${open ? "rotate-180" : ""}`} />
           </span>
         </div>

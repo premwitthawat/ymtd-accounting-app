@@ -30,6 +30,7 @@ export default function Header({
   onOpenAdmin,
 }) {
   const canManageUsers = profile && ["owner", "manager"].includes(profile.role);
+  const isEmployee = profile?.role === "employee";
   const views = canManageUsers ? [...VIEWS, ["team", "ทีมงาน"]] : VIEWS;
 
   return (
@@ -96,18 +97,22 @@ export default function Header({
               </button>
             ))}
           </div>
-          <select
-            value={person}
-            onChange={e => setPerson(e.target.value)}
-            aria-label="กรองตามคนรับผิดชอบ"
-            className="rounded-lg border border-white/20 bg-white/10 px-2.5 py-1.5 text-sm font-medium text-white shadow-sm focus:ring-2 focus:ring-brand-gold focus:outline-none"
-          >
-            {people.map(p => (
-              <option key={p} className="text-slate-900">
-                {p}
-              </option>
-            ))}
-          </select>
+          {isEmployee ? (
+            <span className="rounded-lg border border-white/20 bg-white/10 px-2.5 py-1.5 text-sm font-medium text-white">{person}</span>
+          ) : (
+            <select
+              value={person}
+              onChange={e => setPerson(e.target.value)}
+              aria-label="กรองตามคนรับผิดชอบ"
+              className="rounded-lg border border-white/20 bg-white/10 px-2.5 py-1.5 text-sm font-medium text-white shadow-sm focus:ring-2 focus:ring-brand-gold focus:outline-none"
+            >
+              {people.map(p => (
+                <option key={p} className="text-slate-900">
+                  {p}
+                </option>
+              ))}
+            </select>
+          )}
         </div>
       </div>
     </div>

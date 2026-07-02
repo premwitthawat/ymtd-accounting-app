@@ -16,6 +16,7 @@ import EmptyState from "./components/EmptyState";
 import CompletedSection from "./components/CompletedSection";
 import AddCompanyModal from "./components/AddCompanyModal";
 import EditCompanyModal from "./components/EditCompanyModal";
+import UnpaidModal from "./components/UnpaidModal";
 
 const toCompany = c => ({ id: c.id, name: c.name, short: c.short, owner: c.owner });
 const toTask = t => ({
@@ -54,6 +55,14 @@ export default function App() {
     .find(p => p.type === "year").value;
   const [view, setView] = useState("urgent");
   const [person, setPerson] = useState("ทุกคน");
+  const isEmployee = profile?.role === "employee";
+
+  // Employees only ever see their own work — lock the person filter to
+  // their own label instead of letting them switch to "ทุกคน" or others.
+  useEffect(() => {
+    if (isEmployee && profile?.label) setPerson(profile.label);
+  }, [isEmployee, profile?.label]);
+
   const [typeFilter, setTypeFilter] = useState(null);
   const [showUnpaidOnly, setShowUnpaidOnly] = useState(false);
   const [openCompany, setOpenCompany] = useState(null);
@@ -319,118 +328,88 @@ export default function App() {
         />
 
         <div className="mx-auto max-w-6xl px-4 py-4 sm:px-6">
-          {showUnpaidOnly ? (
-            <div className="flex flex-col gap-2">
-              {unpaidTasks.length === 0 ? (
-                <div className="rounded-xl border border-slate-200 bg-white py-16 text-center text-sm text-slate-400 shadow-sm">
-                  ไม่มีรายการรอลูกค้าชำระ
-                </div>
-              ) : (
-                [...unpaidTasks]
-                  .sort((a, b) => a.company.localeCompare(b.company, "th"))
-                  .map(t => (
-                    <div key={t.key} className="flex items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 shadow-sm">
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2">
-                          <span className="shrink-0 rounded-md bg-brand-navy px-1.5 py-0.5 text-[11px] font-bold text-white">{t.type}</span>
-                          <span className="truncate text-sm font-semibold text-slate-900">{t.company}</span>
-                        </div>
-                        <div className="mt-0.5 text-xs text-slate-500">{t.owner} · ยื่นแล้ว รอลูกค้าชำระ</div>
-                      </div>
-                      <button
-                        onClick={() => setPaymentStatus(t.key, "paid")}
-                        className="shrink-0 rounded-md bg-emerald-600 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700"
-                      >
-                        ชำระแล้ว
-                      </button>
-                    </div>
-                  ))
-              )}
+          {view === "urgent" && (
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
+              <TypeFilterChips typeCounts={typeCounts} typeFilter={typeFilter} setTypeFilter={setTypeFilter} />
+
+              <div className="min-w-0 flex-1">
+                {groups.length === 0 && <EmptyState typeFilter={typeFilter} person={person} />}
+
+                {groups.map(([dateStr, dayTasks]) => (
+                  <DayGroup
+                    key={dateStr}
+                    dateStr={dateStr}
+                    dayTasks={dayTasks}
+                    todayDate={todayDate}
+                    onToggle={toggle}
+                    onSkip={skip}
+                    onRestore={restore}
+                    onMarkGroupDone={markGroupDone}
+                    onSetPaymentStatus={setPaymentStatus}
+                    onSetDueDate={setDueDate}
+                  />
+                ))}
+
+                <CompletedSection
+                  tasks={visible.filter(t => t.status !== "pending")}
+                  todayDate={todayDate}
+                  onToggle={toggle}
+                  onSkip={skip}
+                  onRestore={restore}
+                  onSetPaymentStatus={setPaymentStatus}
+                  onSetDueDate={setDueDate}
+                />
+              </div>
             </div>
-          ) : (
+          )}
+
+          {view === "company" && (
             <>
-              {view === "urgent" && (
-                <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
-                  <TypeFilterChips typeCounts={typeCounts} typeFilter={typeFilter} setTypeFilter={setTypeFilter} />
-
-                  <div className="min-w-0 flex-1">
-                    {groups.length === 0 && <EmptyState typeFilter={typeFilter} person={person} />}
-
-                    {groups.map(([dateStr, dayTasks]) => (
-                      <DayGroup
-                        key={dateStr}
-                        dateStr={dateStr}
-                        dayTasks={dayTasks}
-                        todayDate={todayDate}
-                        onToggle={toggle}
-                        onSkip={skip}
-                        onRestore={restore}
-                        onMarkGroupDone={markGroupDone}
-                        onSetPaymentStatus={setPaymentStatus}
-                        onSetDueDate={setDueDate}
-                      />
-                    ))}
-
-                    <CompletedSection
-                      tasks={visible.filter(t => t.status !== "pending")}
-                      todayDate={todayDate}
-                      onToggle={toggle}
-                      onSkip={skip}
-                      onRestore={restore}
-                      onSetPaymentStatus={setPaymentStatus}
-                      onSetDueDate={setDueDate}
-                    />
-                  </div>
+              {!isEmployee && (
+                <div className="mb-3 flex justify-end">
+                  <button
+                    onClick={() => setShowAddCompany(true)}
+                    className="flex items-center gap-1.5 rounded-lg bg-brand-navy px-3.5 py-2 text-sm font-semibold text-white shadow-sm hover:bg-brand-navy-light"
+                  >
+                    <Plus size={16} /> เพิ่มบริษัท
+                  </button>
                 </div>
               )}
 
-              {view === "company" && (
-                <>
-                  <div className="mb-3 flex justify-end">
-                    <button
-                      onClick={() => setShowAddCompany(true)}
-                      className="flex items-center gap-1.5 rounded-lg bg-brand-navy px-3.5 py-2 text-sm font-semibold text-white shadow-sm hover:bg-brand-navy-light"
-                    >
-                      <Plus size={16} /> เพิ่มบริษัท
-                    </button>
-                  </div>
+              {companyRows.map(c => (
+                <CompanyCard
+                  key={c.id}
+                  c={c}
+                  todayDate={todayDate}
+                  open={openCompany === c.id}
+                  onToggleOpen={() => setOpenCompany(openCompany === c.id ? null : c.id)}
+                  onToggle={toggle}
+                  onSkip={skip}
+                  onRestore={restore}
+                  onEdit={isEmployee ? undefined : setEditingCompany}
+                  onSetPaymentStatus={setPaymentStatus}
+                  onSetDueDate={setDueDate}
+                />
+              ))}
+            </>
+          )}
 
-                  {companyRows.map(c => (
-                    <CompanyCard
-                      key={c.id}
-                      c={c}
-                      todayDate={todayDate}
-                      open={openCompany === c.id}
-                      onToggleOpen={() => setOpenCompany(openCompany === c.id ? null : c.id)}
-                      onToggle={toggle}
-                      onSkip={skip}
-                      onRestore={restore}
-                      onEdit={setEditingCompany}
-                      onSetPaymentStatus={setPaymentStatus}
-                      onSetDueDate={setDueDate}
-                    />
-                  ))}
-                </>
+          {view === "team" && (
+            <>
+              {teamRows.length === 0 && (
+                <div className="rounded-xl border border-slate-200 bg-white py-16 text-center text-sm text-slate-400 shadow-sm">
+                  ยังไม่มีข้อมูลทีมงาน
+                </div>
               )}
-
-              {view === "team" && (
-                <>
-                  {teamRows.length === 0 && (
-                    <div className="rounded-xl border border-slate-200 bg-white py-16 text-center text-sm text-slate-400 shadow-sm">
-                      ยังไม่มีข้อมูลทีมงาน
-                    </div>
-                  )}
-                  {teamRows.map(p => (
-                    <PersonCard
-                      key={p.owner}
-                      p={p}
-                      todayDate={todayDate}
-                      open={openPerson === p.owner}
-                      onToggleOpen={() => setOpenPerson(openPerson === p.owner ? null : p.owner)}
-                    />
-                  ))}
-                </>
-              )}
+              {teamRows.map(p => (
+                <PersonCard
+                  key={p.owner}
+                  p={p}
+                  todayDate={todayDate}
+                  open={openPerson === p.owner}
+                  onToggleOpen={() => setOpenPerson(openPerson === p.owner ? null : p.owner)}
+                />
+              ))}
             </>
           )}
         </div>
@@ -453,6 +432,12 @@ export default function App() {
           onRenameTaskType={renameTaskType}
         />
         <AdminUsersPanel open={showAdminUsers} onClose={() => setShowAdminUsers(false)} profile={profile} />
+        <UnpaidModal
+          open={showUnpaidOnly}
+          onClose={() => setShowUnpaidOnly(false)}
+          tasks={unpaidTasks}
+          onMarkPaid={key => setPaymentStatus(key, "paid")}
+        />
       </div>
     </TaskTypesProvider>
   );
