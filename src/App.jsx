@@ -19,6 +19,7 @@ import CompletedSection from "./components/CompletedSection";
 import AddCompanyModal from "./components/AddCompanyModal";
 import EditCompanyModal from "./components/EditCompanyModal";
 import UnpaidList from "./components/UnpaidList";
+import Toast from "./components/Toast";
 
 const toCompany = c => ({ id: c.id, name: c.name, short: c.short, owner: c.owner, active: c.active !== false });
 const toTask = t => ({
@@ -60,6 +61,21 @@ export default function App() {
   const [person, setPerson] = useState("ทุกคน");
   const isEmployee = profile?.role === "employee";
 
+  const [selectedPeriod, setSelectedPeriod] = useState(currentPeriod);
+  const isCurrentPeriod = selectedPeriod === currentPeriod;
+  const shiftPeriod = delta => {
+    const [y, m] = selectedPeriod.split("-").map(Number);
+    const d = new Date(y, m - 1 + delta, 1);
+    setSelectedPeriod(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`);
+  };
+  const goToCurrentPeriod = () => setSelectedPeriod(currentPeriod);
+  const [selectedPeriodY, selectedPeriodM] = selectedPeriod.split("-").map(Number);
+  const selectedPeriodDate = new Date(selectedPeriodY, selectedPeriodM - 1, 1);
+  const selectedMonthAbbrev = new Intl.DateTimeFormat("th-TH-u-ca-buddhist", { month: "short" }).format(selectedPeriodDate);
+  const selectedYearLabel = new Intl.DateTimeFormat("th-TH-u-ca-buddhist", { year: "numeric" })
+    .formatToParts(selectedPeriodDate)
+    .find(p => p.type === "year").value;
+
   // Employees only ever see their own work — lock the person filter to
   // their own label instead of letting them switch to "ทุกคน" or others.
   // Owner/manager get reset to "ทุกคน" on login too, so a stale filter
@@ -87,6 +103,8 @@ export default function App() {
   const [showAdminUsers, setShowAdminUsers] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
   const [editingCompany, setEditingCompany] = useState(null);
+  const [toast, setToast] = useState(null);
+  const notifyError = message => setToast({ id: Date.now(), message });
 
   const loadAll = useCallback(async () => {
     const [
@@ -97,7 +115,7 @@ export default function App() {
     ] = await Promise.all([
       supabase.from("companies").select("*").order("id"),
       supabase.from("company_services").select("*").order("id"),
-      supabase.from("tasks").select("*").eq("period", currentPeriod).order("id"),
+      supabase.from("tasks").select("*").eq("period", selectedPeriod).order("id"),
       supabase.from("task_types").select("*").order("created_at"),
     ]);
     if (companiesError) console.error(companiesError);
@@ -108,7 +126,7 @@ export default function App() {
     setCompanyServices((servicesData || []).map(toCompanyService));
     setTasks((tasksData || []).map(toTask));
     setTaskTypes(toTaskTypes(taskTypesData || []));
-  }, [currentPeriod]);
+  }, [selectedPeriod]);
 
   useEffect(() => {
     if (!session) return;
@@ -158,6 +176,7 @@ export default function App() {
     const { data: company, error: companyError } = await supabase.from("companies").insert({ name, short, owner }).select().single();
     if (companyError) {
       console.error(companyError);
+      notifyError("เพิ่มบริษัทไม่สำเร็จ กรุณาลองใหม่");
       return;
     }
 
@@ -166,10 +185,16 @@ export default function App() {
       ...customServices.map(cs => ({ company_id: company.id, type: cs.type, custom_due_day: cs.dueDay })),
     ];
     const { error: csError } = await supabase.from("company_services").insert(rows);
-    if (csError) console.error(csError);
+    if (csError) {
+      console.error(csError);
+      notifyError("เพิ่มบริการของบริษัทไม่สำเร็จ กรุณาลองใหม่");
+    }
 
     const { error: rpcError } = await supabase.rpc("ensure_current_period_tasks");
-    if (rpcError) console.error(rpcError);
+    if (rpcError) {
+      console.error(rpcError);
+      notifyError("สร้างงานประจำเดือนไม่สำเร็จ กรุณาลองใหม่");
+    }
     await loadAll();
   };
 
@@ -177,6 +202,7 @@ export default function App() {
     const { error: companyError } = await supabase.from("companies").update({ name, short, owner }).eq("id", company.id);
     if (companyError) {
       console.error(companyError);
+      notifyError("บันทึกข้อมูลบริษัทไม่สำเร็จ กรุณาลองใหม่");
       return;
     }
 
@@ -184,7 +210,10 @@ export default function App() {
     // in sync (covers a plain rename or a responsibility hand-off) —
     // applies across all periods, not just the current one.
     const { error: syncError } = await supabase.from("tasks").update({ company: short, owner }).eq("company_id", company.id);
-    if (syncError) console.error(syncError);
+    if (syncError) {
+      console.error(syncError);
+      notifyError("อัปเดตชื่อบริษัทในงานเดิมไม่สำเร็จ");
+    }
 
     const newTypes = [...services, ...customServices.map(cs => cs.type)];
     const existingTypes = company.services.map(cs => cs.type);
@@ -195,7 +224,10 @@ export default function App() {
       // Soft-retire — keeps past months' completed history intact, just
       // stops future generation.
       const { error } = await supabase.from("company_services").update({ active: false }).eq("company_id", company.id).in("type", toRemove);
-      if (error) console.error(error);
+      if (error) {
+        console.error(error);
+        notifyError("ปิดบริการเดิมไม่สำเร็จ กรุณาลองใหม่");
+      }
       // Drop this period's instance only if it's still pending (not done/skipped).
       const { error: delErr } = await supabase
         .from("tasks")
@@ -203,7 +235,10 @@ export default function App() {
         .eq("company_id", company.id)
         .eq("status", "pending")
         .in("type", toRemove);
-      if (delErr) console.error(delErr);
+      if (delErr) {
+        console.error(delErr);
+        notifyError("ลบงานค้างของบริการเดิมไม่สำเร็จ");
+      }
     }
 
     if (toAdd.length) {
@@ -212,11 +247,17 @@ export default function App() {
         return { company_id: company.id, type, custom_due_day: custom ? custom.dueDay : null, active: true };
       });
       const { error } = await supabase.from("company_services").upsert(rows, { onConflict: "company_id,type" });
-      if (error) console.error(error);
+      if (error) {
+        console.error(error);
+        notifyError("เพิ่มบริการใหม่ไม่สำเร็จ กรุณาลองใหม่");
+      }
     }
 
     const { error: rpcError } = await supabase.rpc("ensure_current_period_tasks");
-    if (rpcError) console.error(rpcError);
+    if (rpcError) {
+      console.error(rpcError);
+      notifyError("สร้างงานประจำเดือนไม่สำเร็จ กรุณาลองใหม่");
+    }
     await loadAll();
   };
 
@@ -224,27 +265,37 @@ export default function App() {
     const { error } = await supabase.from("companies").update({ active }).eq("id", company.id);
     if (error) {
       console.error(error);
-      alert(`บันทึกไม่สำเร็จ: ${error.message}`);
+      notifyError(`บันทึกไม่สำเร็จ: ${error.message}`);
       return;
     }
     if (!active) {
       // Closing out a company: stop generating future tasks and drop this
       // period's still-pending ones, same as removing every service would.
       const { error: csError } = await supabase.from("company_services").update({ active: false }).eq("company_id", company.id);
-      if (csError) console.error(csError);
+      if (csError) {
+        console.error(csError);
+        notifyError("ปิดบริการของบริษัทไม่สำเร็จ");
+      }
       const { error: delErr } = await supabase.from("tasks").delete().eq("company_id", company.id).eq("status", "pending");
-      if (delErr) console.error(delErr);
+      if (delErr) {
+        console.error(delErr);
+        notifyError("ลบงานค้างของบริษัทไม่สำเร็จ");
+      }
     }
     setEditingCompany(null);
     await loadAll();
   };
 
   const setStatus = async (key, status, note = "") => {
+    if (!isCurrentPeriod) return notifyError("กำลังดูข้อมูลย้อนหลัง ไม่สามารถแก้ไขได้");
     const { error } = await supabase
       .from("tasks")
       .update({ status, note: note || (status === "skipped" ? "ไม่มีรายการเดือนนี้" : ""), updated_at: new Date().toISOString() })
       .eq("key", key);
-    if (error) console.error(error);
+    if (error) {
+      console.error(error);
+      notifyError("บันทึกสถานะงานไม่สำเร็จ กรุณาลองใหม่");
+    }
     await loadAll();
   };
 
@@ -253,29 +304,45 @@ export default function App() {
   const restore = t => setStatus(t.key, "pending");
 
   const setPaymentStatus = async (key, paymentStatus) => {
+    if (!isCurrentPeriod) return notifyError("กำลังดูข้อมูลย้อนหลัง ไม่สามารถแก้ไขได้");
     const { error } = await supabase.from("tasks").update({ payment_status: paymentStatus }).eq("key", key);
-    if (error) console.error(error);
+    if (error) {
+      console.error(error);
+      notifyError("บันทึกสถานะการชำระเงินไม่สำเร็จ กรุณาลองใหม่");
+    }
     await loadAll();
   };
 
   const markCompanyPaid = async keys => {
+    if (!isCurrentPeriod) return notifyError("กำลังดูข้อมูลย้อนหลัง ไม่สามารถแก้ไขได้");
     const { error } = await supabase.from("tasks").update({ payment_status: "paid" }).in("key", keys);
-    if (error) console.error(error);
+    if (error) {
+      console.error(error);
+      notifyError("บันทึกการชำระเงินไม่สำเร็จ กรุณาลองใหม่");
+    }
     await loadAll();
   };
 
   const setDueDate = async (key, dueDateStr) => {
+    if (!isCurrentPeriod) return notifyError("กำลังดูข้อมูลย้อนหลัง ไม่สามารถแก้ไขได้");
     const { error } = await supabase.from("tasks").update({ due_date: dueDateStr }).eq("key", key);
-    if (error) console.error(error);
+    if (error) {
+      console.error(error);
+      notifyError("บันทึกวันครบกำหนดไม่สำเร็จ กรุณาลองใหม่");
+    }
     await loadAll();
   };
 
   const markGroupDone = async dayTasks => {
+    if (!isCurrentPeriod) return notifyError("กำลังดูข้อมูลย้อนหลัง ไม่สามารถแก้ไขได้");
     const { error } = await supabase
       .from("tasks")
       .update({ status: "done", updated_at: new Date().toISOString() })
       .in("key", dayTasks.map(d => d.key));
-    if (error) console.error(error);
+    if (error) {
+      console.error(error);
+      notifyError("บันทึกไม่สำเร็จ กรุณาลองใหม่");
+    }
     await loadAll();
   };
 
@@ -376,8 +443,12 @@ export default function App() {
       <div className="min-h-screen bg-slate-50 font-sans">
         <Header
           today={today}
-          monthLabel={`งานประจำเดือน ${monthAbbrev} ${yearLabel}`}
+          monthLabel={`งานประจำเดือน ${selectedMonthAbbrev} ${selectedYearLabel}`}
           monthAbbrev={monthAbbrev}
+          isCurrentPeriod={isCurrentPeriod}
+          onPrevMonth={() => shiftPeriod(-1)}
+          onNextMonth={() => shiftPeriod(1)}
+          onGoToCurrent={goToCurrentPeriod}
           view={view}
           setView={setView}
           person={person}
@@ -456,7 +527,7 @@ export default function App() {
 
           {view === "company" && (
             <>
-              {!isEmployee && (
+              {!isEmployee && isCurrentPeriod && (
                 <div className="mb-3 flex items-center justify-end gap-2">
                   <button
                     onClick={() => setShowAddCompany(true)}
@@ -493,7 +564,7 @@ export default function App() {
                       onToggle={toggle}
                       onSkip={skip}
                       onRestore={restore}
-                      onEdit={isEmployee ? undefined : setEditingCompany}
+                      onEdit={isEmployee || !isCurrentPeriod ? undefined : setEditingCompany}
                       onSetPaymentStatus={setPaymentStatus}
                       onSetDueDate={setDueDate}
                     />
@@ -513,7 +584,7 @@ export default function App() {
                       onToggle={toggle}
                       onSkip={skip}
                       onRestore={restore}
-                      onEdit={isEmployee ? undefined : setEditingCompany}
+                      onEdit={isEmployee || !isCurrentPeriod ? undefined : setEditingCompany}
                       onSetPaymentStatus={setPaymentStatus}
                       onSetDueDate={setDueDate}
                     />
@@ -529,7 +600,7 @@ export default function App() {
                       onToggle={toggle}
                       onSkip={skip}
                       onRestore={restore}
-                      onEdit={isEmployee ? undefined : setEditingCompany}
+                      onEdit={isEmployee || !isCurrentPeriod ? undefined : setEditingCompany}
                       onSetPaymentStatus={setPaymentStatus}
                       onSetDueDate={setDueDate}
                     />
@@ -588,6 +659,7 @@ export default function App() {
         />
         <AdminUsersPanel open={showAdminUsers} onClose={() => setShowAdminUsers(false)} profile={profile} />
         <HelpGuideModal open={showHelp} onClose={() => setShowHelp(false)} />
+        <Toast toast={toast} onDismiss={() => setToast(null)} />
       </div>
     </TaskTypesProvider>
   );

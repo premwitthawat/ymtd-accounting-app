@@ -1,4 +1,4 @@
-import { HelpCircle, LogOut, Search, Settings } from "lucide-react";
+import { ChevronLeft, ChevronRight, HelpCircle, LogOut, Search, Settings } from "lucide-react";
 import MonthTimeline from "./MonthTimeline";
 import StatCards from "./StatCards";
 
@@ -13,6 +13,10 @@ export default function Header({
   today,
   monthLabel,
   monthAbbrev,
+  isCurrentPeriod,
+  onPrevMonth,
+  onNextMonth,
+  onGoToCurrent,
   view,
   setView,
   person,
@@ -40,7 +44,34 @@ export default function Header({
         <div className="flex items-baseline justify-between">
           <div>
             <div className="text-[11px] font-semibold tracking-[0.15em] text-brand-gold uppercase">YMTD Accounting</div>
-            <h1 className="mt-0.5 text-xl font-bold text-white sm:text-2xl">{monthLabel}</h1>
+            <div className="mt-0.5 flex items-center gap-1.5">
+              <button
+                onClick={onPrevMonth}
+                aria-label="เดือนก่อนหน้า"
+                className="rounded-md p-1 text-white/60 hover:bg-white/10 hover:text-white"
+              >
+                <ChevronLeft size={18} />
+              </button>
+              <h1 className="text-xl font-bold text-white sm:text-2xl">{monthLabel}</h1>
+              <button
+                onClick={onNextMonth}
+                disabled={isCurrentPeriod}
+                aria-label="เดือนถัดไป"
+                className="rounded-md p-1 text-white/60 hover:bg-white/10 hover:text-white disabled:opacity-30 disabled:hover:bg-transparent"
+              >
+                <ChevronRight size={18} />
+              </button>
+              {!isCurrentPeriod && (
+                <div className="ml-2 flex items-center gap-2">
+                  <span className="rounded-full bg-brand-gold/20 px-2 py-0.5 text-[11px] font-semibold text-brand-gold">
+                    ดูย้อนหลัง · อ่านอย่างเดียว
+                  </span>
+                  <button onClick={onGoToCurrent} className="text-[11px] font-semibold text-white/60 underline hover:text-white">
+                    กลับเดือนปัจจุบัน
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
           <div className="flex items-start gap-3">
             <div className="text-right">
@@ -77,7 +108,7 @@ export default function Header({
           </div>
         </div>
 
-        <MonthTimeline today={today} />
+        <MonthTimeline today={today} isCurrentPeriod={isCurrentPeriod} />
 
         <div className="mt-4">
           <StatCards

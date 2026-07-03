@@ -3,7 +3,7 @@ import { DEADLINE_MARKERS } from "../data/tasks";
 const TICKS = [5, 10, 15, 20, 25, 30];
 const MONTH_SCALE = 31;
 
-export default function MonthTimeline({ today }) {
+export default function MonthTimeline({ today, isCurrentPeriod = true }) {
   return (
     <div className="relative mt-5 h-9">
       <div className="absolute top-3 right-0 left-0 h-1.5 rounded-full bg-white/15" />
@@ -29,16 +29,18 @@ export default function MonthTimeline({ today }) {
         </div>
       ))}
 
-      <div
-        className="absolute top-0 flex -translate-x-1/2 flex-col items-center"
-        style={{ left: `${(today / MONTH_SCALE) * 100}%` }}
-      >
-        <div className="h-9 w-0.5 bg-brand-gold" />
-        <span className="relative -mt-1.5 flex h-3 w-3">
-          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-brand-gold opacity-75" />
-          <span className="relative inline-flex h-3 w-3 rounded-full bg-brand-gold ring-2 ring-brand-navy" />
-        </span>
-      </div>
+      {isCurrentPeriod && (
+        <div
+          className="absolute top-0 flex -translate-x-1/2 flex-col items-center"
+          style={{ left: `${(today / MONTH_SCALE) * 100}%` }}
+        >
+          <div className="h-9 w-0.5 bg-brand-gold" />
+          <span className="relative -mt-1.5 flex h-3 w-3">
+            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-brand-gold opacity-75" />
+            <span className="relative inline-flex h-3 w-3 rounded-full bg-brand-gold ring-2 ring-brand-navy" />
+          </span>
+        </div>
+      )}
     </div>
   );
 }
