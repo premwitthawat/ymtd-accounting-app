@@ -8,13 +8,16 @@ export default function CompanyCard({ c, todayDate, open, onToggleOpen, onToggle
   return (
     <div
       className={`mb-2 overflow-hidden rounded-xl border bg-white shadow-sm transition-shadow hover:shadow-md ${
-        c.over > 0 ? "border-rose-200" : "border-slate-200"
+        c.active === false ? "border-slate-200 opacity-60" : c.over > 0 ? "border-rose-200" : "border-slate-200"
       }`}
     >
       <div onClick={onToggleOpen} className="w-full cursor-pointer px-4 py-3 text-left">
         <div className="flex items-center justify-between gap-2">
           <span className="truncate text-sm font-semibold text-slate-900">{c.short}</span>
           <span className="flex shrink-0 items-center gap-2 text-xs text-slate-500">
+            {c.active === false && (
+              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-500">ปิดให้บริการแล้ว</span>
+            )}
             {c.over > 0 && <span className="font-bold text-rose-600">เลยกำหนด {c.over}</span>}
             <span>{c.owner} · <span className="font-mono">{c.done}/{c.total}</span></span>
             {onEdit && (

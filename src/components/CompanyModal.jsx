@@ -18,7 +18,19 @@ const blankState = {
 
 const blankNewType = { name: "", dueDay: 20, color: PALETTE_KEYS[0] };
 
-export default function CompanyModal({ open, onClose, onSubmit, title, submitLabel, initial, onAddTaskType, onDeleteTaskType, onRenameTaskType }) {
+export default function CompanyModal({
+  open,
+  onClose,
+  onSubmit,
+  title,
+  submitLabel,
+  initial,
+  onAddTaskType,
+  onDeleteTaskType,
+  onRenameTaskType,
+  archived,
+  onSetActive,
+}) {
   const taskTypes = useTaskTypes();
   const [form, setForm] = useState(blankState);
   const [addingType, setAddingType] = useState(false);
@@ -134,7 +146,12 @@ export default function CompanyModal({ open, onClose, onSubmit, title, submitLab
     <div className="fixed inset-0 z-20 flex items-center justify-center bg-black/40 p-4">
       <div className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-xl bg-white shadow-xl">
         <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
-          <h2 className="text-base font-bold text-slate-900">{title}</h2>
+          <h2 className="flex items-center gap-2 text-base font-bold text-slate-900">
+            {title}
+            {archived && (
+              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-500">ปิดให้บริการแล้ว</span>
+            )}
+          </h2>
           <button onClick={onClose} aria-label="ปิด" className="rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600">
             <X size={18} />
           </button>
@@ -326,6 +343,32 @@ export default function CompanyModal({ open, onClose, onSubmit, title, submitLab
             </button>
           </div>
         </form>
+
+        {onSetActive && (
+          <div className="border-t border-slate-100 px-5 py-3">
+            {archived ? (
+              <button
+                type="button"
+                onClick={() => onSetActive(true)}
+                className="w-full rounded-lg border border-slate-200 px-3.5 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50"
+              >
+                เปิดให้บริการอีกครั้ง
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => {
+                  if (confirm(`ปิดให้บริการ "${form.short || form.name}"?\nงานเดือนนี้ที่ยังค้างจะถูกลบ แต่ประวัติเก่ายังอยู่ และเปิดกลับมาได้ภายหลัง`)) {
+                    onSetActive(false);
+                  }
+                }}
+                className="w-full rounded-lg border border-rose-200 px-3.5 py-2 text-sm font-semibold text-rose-600 hover:bg-rose-50"
+              >
+                ปิดให้บริการบริษัทนี้
+              </button>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

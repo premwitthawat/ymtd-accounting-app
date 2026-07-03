@@ -20,7 +20,7 @@ import AddCompanyModal from "./components/AddCompanyModal";
 import EditCompanyModal from "./components/EditCompanyModal";
 import UnpaidList from "./components/UnpaidList";
 
-const toCompany = c => ({ id: c.id, name: c.name, short: c.short, owner: c.owner });
+const toCompany = c => ({ id: c.id, name: c.name, short: c.short, owner: c.owner, active: c.active !== false });
 const toTask = t => ({
   key: t.key,
   companyId: t.company_id,
@@ -72,6 +72,7 @@ export default function App() {
   const [typeFilter, setTypeFilter] = useState(null);
   const [openCompany, setOpenCompany] = useState(null);
   const [companySearch, setCompanySearch] = useState("");
+  const [showArchivedCompanies, setShowArchivedCompanies] = useState(false);
   const [openOwnerGroups, setOpenOwnerGroups] = useState(() => new Set());
   const toggleOwnerGroup = owner =>
     setOpenOwnerGroups(prev => {
@@ -217,6 +218,24 @@ export default function App() {
     await loadAll();
   };
 
+  const setCompanyActive = async (company, active) => {
+    const { error } = await supabase.from("companies").update({ active }).eq("id", company.id);
+    if (error) {
+      console.error(error);
+      return;
+    }
+    if (!active) {
+      // Closing out a company: stop generating future tasks and drop this
+      // period's still-pending ones, same as removing every service would.
+      const { error: csError } = await supabase.from("company_services").update({ active: false }).eq("company_id", company.id);
+      if (csError) console.error(csError);
+      const { error: delErr } = await supabase.from("tasks").delete().eq("company_id", company.id).eq("status", "pending");
+      if (delErr) console.error(delErr);
+    }
+    setEditingCompany(null);
+    await loadAll();
+  };
+
   const setStatus = async (key, status, note = "") => {
     const { error } = await supabase
       .from("tasks")
@@ -287,14 +306,16 @@ export default function App() {
 
   const companyRows = useMemo(
     () =>
-      companies.filter(c => person === "ทุกคน" || c.owner === person).map(c => {
+      companies
+        .filter(c => (showArchivedCompanies || c.active) && (person === "ทุกคน" || c.owner === person))
+        .map(c => {
         const ct = tasks.filter(t => t.companyId === c.id);
         const services = companyServices.filter(cs => cs.companyId === c.id && cs.active);
         const done = ct.filter(t => t.status !== "pending").length;
         const over = ct.filter(t => t.status === "pending" && getUrgency(t.dueDate, todayDate) === "over").length;
         return { ...c, ct, services, done, total: ct.length, over };
       }),
-    [companies, companyServices, tasks, person, todayDate]
+    [companies, companyServices, tasks, person, todayDate, showArchivedCompanies]
   );
 
   const companySearchMatch = useMemo(() => {
@@ -418,6 +439,16 @@ export default function App() {
                 )}
               </div>
 
+              <label className="mb-3 flex cursor-pointer items-center gap-1.5 text-xs font-medium text-slate-500">
+                <input
+                  type="checkbox"
+                  checked={showArchivedCompanies}
+                  onChange={e => setShowArchivedCompanies(e.target.checked)}
+                  className="accent-brand-navy"
+                />
+                แสดงบริษัทที่ปิดให้บริการแล้ว
+              </label>
+
               {companySearchMatch ? (
                 companySearchMatch.length === 0 ? (
                   <div className="rounded-xl border border-slate-200 bg-white py-16 text-center text-sm text-slate-400 shadow-sm">
@@ -524,6 +555,7 @@ export default function App() {
           onAddTaskType={addTaskType}
           onDeleteTaskType={deleteTaskType}
           onRenameTaskType={renameTaskType}
+          onSetActive={setCompanyActive}
         />
         <AdminUsersPanel open={showAdminUsers} onClose={() => setShowAdminUsers(false)} profile={profile} />
         <HelpGuideModal open={showHelp} onClose={() => setShowHelp(false)} />

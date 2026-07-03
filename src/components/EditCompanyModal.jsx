@@ -3,7 +3,7 @@ import { Save } from "lucide-react";
 import CompanyModal from "./CompanyModal";
 import { useTaskTypes } from "../lib/TaskTypesContext";
 
-export default function EditCompanyModal({ open, onClose, company, onSave, onAddTaskType, onDeleteTaskType, onRenameTaskType }) {
+export default function EditCompanyModal({ open, onClose, company, onSave, onAddTaskType, onDeleteTaskType, onRenameTaskType, onSetActive }) {
   const taskTypes = useTaskTypes();
   const initial = useMemo(() => {
     if (!company) return null;
@@ -43,6 +43,8 @@ export default function EditCompanyModal({ open, onClose, company, onSave, onAdd
         </>
       }
       initial={initial}
+      archived={company.active === false}
+      onSetActive={active => onSetActive(company, active)}
     />
   );
 }
