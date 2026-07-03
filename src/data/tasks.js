@@ -23,7 +23,7 @@ export const TYPE_PALETTE = {
 export const DEFAULT_TYPE_STYLE = TYPE_PALETTE.slate;
 
 export const PHASE_LABEL = { 1: "ช่วงเตรียมเอกสาร", 2: "หัก ณ ที่จ่าย + กยศ. (ยื่นออนไลน์ถึง 15)", 3: "สปส. / ภพ.30 (ถึง 22–23)" };
-export const PEOPLE = ["ทุกคน", "เปรม", "ต๋อง"];
+export const PEOPLE = ["ทุกคน", "พลอย", "ปูนา"];
 export const DEADLINE_MARKERS = [
   { day: 15, color: "bg-blue-400", label: "ภงด./กยศ." },
   { day: 22, color: "bg-amber-400", label: "สปส." },
