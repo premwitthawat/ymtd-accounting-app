@@ -1,4 +1,4 @@
-import { LogOut, Settings } from "lucide-react";
+import { HelpCircle, LogOut, Settings } from "lucide-react";
 import MonthTimeline from "./MonthTimeline";
 import StatCards from "./StatCards";
 
@@ -26,6 +26,7 @@ export default function Header({
   profile,
   onLogout,
   onOpenAdmin,
+  onOpenHelp,
 }) {
   const canManageUsers = profile && ["owner", "manager"].includes(profile.role);
   const isEmployee = profile?.role === "employee";
@@ -50,6 +51,13 @@ export default function Header({
                   <div className="text-xs font-semibold text-white">{profile.label}</div>
                   <div className="text-[11px] text-white/50">{ROLE_LABEL[profile.role]}</div>
                 </div>
+                <button
+                  onClick={onOpenHelp}
+                  aria-label="คู่มือการใช้งาน"
+                  className="rounded-md p-1.5 text-white/60 hover:bg-white/10 hover:text-white"
+                >
+                  <HelpCircle size={16} />
+                </button>
                 {canManageUsers && (
                   <button
                     onClick={onOpenAdmin}

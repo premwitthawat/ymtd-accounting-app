@@ -8,6 +8,7 @@ import { getUrgency, parseDate } from "./lib/urgency";
 import Header from "./components/Header";
 import LoginScreen from "./components/LoginScreen";
 import AdminUsersPanel from "./components/AdminUsersPanel";
+import HelpGuideModal from "./components/HelpGuideModal";
 import TypeFilterChips from "./components/TypeFilterChips";
 import DayGroup from "./components/DayGroup";
 import CompanyCard from "./components/CompanyCard";
@@ -72,6 +73,7 @@ export default function App() {
   const [openPerson, setOpenPerson] = useState(null);
   const [showAddCompany, setShowAddCompany] = useState(false);
   const [showAdminUsers, setShowAdminUsers] = useState(false);
+  const [showHelp, setShowHelp] = useState(false);
   const [editingCompany, setEditingCompany] = useState(null);
 
   const loadAll = useCallback(async () => {
@@ -326,6 +328,7 @@ export default function App() {
           profile={profile}
           onLogout={logout}
           onOpenAdmin={() => setShowAdminUsers(true)}
+          onOpenHelp={() => setShowHelp(true)}
         />
 
         <div className="mx-auto max-w-6xl px-4 py-4 sm:px-6">
@@ -435,6 +438,7 @@ export default function App() {
           onRenameTaskType={renameTaskType}
         />
         <AdminUsersPanel open={showAdminUsers} onClose={() => setShowAdminUsers(false)} profile={profile} />
+        <HelpGuideModal open={showHelp} onClose={() => setShowHelp(false)} />
       </div>
     </TaskTypesProvider>
   );

@@ -1,0 +1,126 @@
+import { X } from "lucide-react";
+
+function Section({ title, children }) {
+  return (
+    <div className="border-b border-slate-100 px-5 py-4 last:border-b-0">
+      <h3 className="mb-2 text-sm font-bold text-brand-navy">{title}</h3>
+      <div className="flex flex-col gap-2 text-sm text-slate-600">{children}</div>
+    </div>
+  );
+}
+
+function Item({ label, children }) {
+  return (
+    <div>
+      <span className="font-semibold text-slate-800">{label}</span>
+      {" — "}
+      {children}
+    </div>
+  );
+}
+
+const ROLE_ROWS = [
+  ["ดูรายการงาน / ทำงาน (ติ๊กเสร็จ, ข้าม, แก้วันครบกำหนด)", "✓", "✓", "✓ (เฉพาะงานของตัวเอง)"],
+  ["เปลี่ยนตัวกรอง \"คนรับผิดชอบ\" เพื่อดูงานคนอื่น", "✓", "✓", "✗ (ล็อกไว้ที่ตัวเอง)"],
+  ["แท็บ \"ทีมงาน\" (ภาพรวมเทียบทุกคน)", "✓", "✓", "✗ (มองไม่เห็นแท็บนี้)"],
+  ["เพิ่ม / แก้ไขข้อมูลบริษัท", "✓", "✓", "✗ (ดูได้อย่างเดียว)"],
+  ["จัดการผู้ใช้ (เพิ่ม/ปิดใช้งาน/ตั้ง PIN ใหม่)", "✓", "✓ (ยกเว้นแก้ไขบัญชีเจ้าของ)", "✗"],
+];
+
+export default function HelpGuideModal({ open, onClose }) {
+  if (!open) return null;
+
+  return (
+    <div className="fixed inset-0 z-20 flex items-center justify-center bg-black/40 p-4">
+      <div className="max-h-[90vh] w-full max-w-xl overflow-y-auto rounded-xl bg-white shadow-xl">
+        <div className="sticky top-0 flex items-center justify-between border-b border-slate-100 bg-white px-5 py-4">
+          <h2 className="text-base font-bold text-slate-900">คู่มือการใช้งาน</h2>
+          <button onClick={onClose} aria-label="ปิด" className="rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600">
+            <X size={18} />
+          </button>
+        </div>
+
+        <Section title="แถบเมนูด้านบน">
+          <Item label="เรียงตามความด่วน">
+            หน้าแรกที่เข้ามาเจอ แสดงงานค้างของเดือนนี้ทั้งหมด จัดกลุ่มตามวันครบกำหนด เรียงจากใกล้ครบก่อน
+            มีช่องกรองประเภทงาน (ภงด., สปส., ภพ.30 ฯลฯ) อยู่ด้านซ้าย
+          </Item>
+          <Item label="รอลูกค้าชำระ">
+            แสดงงานที่ทำเสร็จแล้วแต่ลูกค้ายังไม่จ่ายเงิน กดปุ่ม "ชำระแล้ว" ที่แต่ละแถวเมื่อได้รับเงินแล้ว
+            (หรือกดที่การ์ด "รอลูกค้าชำระ" ด้านบนเพื่อมาหน้านี้ก็ได้)
+          </Item>
+          <Item label="ทีมงาน (เฉพาะเจ้าของ/ผู้จัดการ)">
+            หน้าดูภาพรวมเปรียบเทียบพนักงานแต่ละคน จำนวนบริษัทที่ดูแล งานค้าง งานเลยกำหนด เป็นหน้าดูอย่างเดียว
+            กดขยายเพื่อดูรายการงานค้างของคนนั้น แต่แก้ไขอะไรจากหน้านี้ไม่ได้
+          </Item>
+          <Item label="รายบริษัท">
+            แสดงงานจัดกลุ่มตามบริษัท กดขยายการ์ดเพื่อดูงานของบริษัทนั้น เจ้าของ/ผู้จัดการจะเห็นปุ่ม
+            "เพิ่มบริษัท" และไอคอนดินสอเพื่อแก้ไขข้อมูลบริษัทด้วย
+          </Item>
+        </Section>
+
+        <Section title="ส่วนอื่นๆ บนหัวเว็บ">
+          <Item label="เส้นเวลาเดือน">แถบเส้นด้านบนสุด แสดงตำแหน่งวันนี้เทียบกับเส้นตายหลักในเดือน (15, 22, 23)</Item>
+          <Item label="การ์ดสรุป 4 ใบ">เลยกำหนด / ครบใน 3 วัน / เสร็จแล้ว / รอลูกค้าชำระ — ดูสรุปด่วนได้โดยไม่ต้องไล่ดูทีละรายการ</Item>
+          <Item label="ตัวกรองคนรับผิดชอบ (มุมขวาแถบเมนู)">
+            เจ้าของ/ผู้จัดการเลือกดูงานเฉพาะคนใดคนหนึ่งหรือ "ทุกคน" ได้ ส่วนพนักงานจะเห็นเป็นป้ายชื่อตัวเองล็อกไว้ ไม่สามารถสลับไปดูงานคนอื่นได้
+          </Item>
+          <Item label="ไอคอนเฟือง">เปิดหน้าจัดการผู้ใช้ (เห็นเฉพาะเจ้าของ/ผู้จัดการ)</Item>
+          <Item label="ไอคอนออกจากระบบ">ออกจากระบบและกลับไปหน้าล็อกอิน</Item>
+        </Section>
+
+        <Section title="การจัดการงานแต่ละรายการ">
+          <Item label="ติ๊กช่องสี่เหลี่ยม">มาร์กงานว่าทำเสร็จแล้ว</Item>
+          <Item label="ข้าม">ใช้เมื่อเดือนนี้ไม่มีรายการต้องยื่น จะขึ้นโน้ตอัตโนมัติว่า "ไม่มีรายการเดือนนี้"</Item>
+          <Item label="คืนค่า / ยกเลิก">ดึงงานที่ข้ามไปแล้วหรือทำเสร็จแล้วกลับมาเป็นสถานะค้างอีกครั้ง</Item>
+          <Item label="ไอคอนดินสอ (ที่วันที่)">แก้ไขวันครบกำหนดของงานนั้นเป็นรายกรณี</Item>
+          <Item label="ป้าย “รอลูกค้าชำระ” / “ลูกค้าชำระแล้ว”">ขึ้นเฉพาะงานที่เสร็จแล้ว กดสลับสถานะการจ่ายเงินได้ตรงนี้</Item>
+          <Item label="“เสร็จทั้งกลุ่ม” (บนหัวการ์ดวันที่)">มาร์กงานทุกอันในวันนั้นว่าเสร็จพร้อมกันในคลิกเดียว</Item>
+        </Section>
+
+        <Section title="สิทธิ์การใช้งานตามตำแหน่ง">
+          <div className="overflow-x-auto">
+            <table className="w-full border-collapse text-xs">
+              <thead>
+                <tr className="border-b border-slate-200 text-left text-slate-400">
+                  <th className="py-1.5 pr-2 font-semibold">สิ่งที่ทำได้</th>
+                  <th className="px-2 py-1.5 font-semibold">เจ้าของ</th>
+                  <th className="px-2 py-1.5 font-semibold">ผู้จัดการ</th>
+                  <th className="py-1.5 pl-2 font-semibold">พนักงาน</th>
+                </tr>
+              </thead>
+              <tbody>
+                {ROLE_ROWS.map(([label, owner, manager, employee]) => (
+                  <tr key={label} className="border-b border-slate-100 align-top">
+                    <td className="py-1.5 pr-2 text-slate-600">{label}</td>
+                    <td className="px-2 py-1.5">{owner}</td>
+                    <td className="px-2 py-1.5">{manager}</td>
+                    <td className="py-1.5 pl-2">{employee}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Section>
+
+        <Section title="เพิ่ม / แก้ไขบริษัท (เจ้าของ, ผู้จัดการ)">
+          <Item label="ข้อมูลพื้นฐาน">ชื่อบริษัท ชื่อย่อ และผู้รับผิดชอบหลัก</Item>
+          <Item label="รายการบริการ">ติ๊กเลือกบริการมาตรฐานที่บริษัทนี้ต้องยื่น (ภงด., สปส. ฯลฯ) หรือเพิ่มรายการ "อื่นๆ" แบบกำหนดวันครบกำหนดเอง</Item>
+          <Item label="แก้ไข/ลบชนิดบริการ">ชี้เมาส์ไปที่รายการบริการเพื่อเจอไอคอนดินสอ (เปลี่ยนชื่อ ใช้ผลกับทุกบริษัท) และถังขยะ (ลบออกจากรายการหลัก)</Item>
+          <Item label="เพิ่มบริการหลักใหม่">กรอกชื่อ วันครบกำหนด และสีประจำบริการ เพื่อให้เลือกใช้ได้กับทุกบริษัทในอนาคต</Item>
+        </Section>
+
+        <Section title="จัดการผู้ใช้ (เจ้าของ, ผู้จัดการ)">
+          <Item label="เพิ่มผู้ใช้ใหม่">กำหนดตำแหน่ง ชื่อเรียก ไอดีล็อกอิน และ PIN (อย่างน้อย 6 หลัก) — ผู้จัดการเพิ่มได้เฉพาะตำแหน่ง "พนักงาน" เท่านั้น</Item>
+          <Item label="ตั้ง PIN ใหม่">ไอคอนหมุนย้อนกลับ ใช้เมื่อพนักงานลืมรหัส</Item>
+          <Item label="เปิด/ปิดใช้งานบัญชี">ไอคอนคนมีกากบาท/ถูก ปิดใช้งานแล้วผู้ใช้จะถูกตัดออกจากระบบทันที</Item>
+          <Item label="ข้อจำกัดของผู้จัดการ">แก้ไขหรือปิดใช้งานบัญชีของเจ้าของไม่ได้</Item>
+        </Section>
+
+        <Section title="เข้าสู่ระบบ">
+          <Item label="ล็อกอิน">กรอกไอดีผู้ใช้และ PIN ที่ได้รับจากเจ้าของ/ผู้จัดการ ระบบไม่มีหน้าสมัครสมาชิกเอง ต้องให้ผู้ดูแลสร้างบัญชีให้ก่อน</Item>
+        </Section>
+      </div>
+    </div>
+  );
+}
