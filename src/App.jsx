@@ -222,6 +222,7 @@ export default function App() {
     const { error } = await supabase.from("companies").update({ active }).eq("id", company.id);
     if (error) {
       console.error(error);
+      alert(`บันทึกไม่สำเร็จ: ${error.message}`);
       return;
     }
     if (!active) {
