@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useCallback } from "react";
-import { Plus } from "lucide-react";
+import { Plus, Search } from "lucide-react";
 import { PEOPLE, TYPE_PALETTE } from "./data/tasks";
 import { supabase } from "./lib/supabaseClient";
 import { useAuth } from "./lib/auth";
@@ -12,6 +12,7 @@ import HelpGuideModal from "./components/HelpGuideModal";
 import TypeFilterChips from "./components/TypeFilterChips";
 import DayGroup from "./components/DayGroup";
 import CompanyCard from "./components/CompanyCard";
+import CompanyGroup from "./components/CompanyGroup";
 import PersonCard from "./components/PersonCard";
 import EmptyState from "./components/EmptyState";
 import CompletedSection from "./components/CompletedSection";
@@ -70,6 +71,14 @@ export default function App() {
 
   const [typeFilter, setTypeFilter] = useState(null);
   const [openCompany, setOpenCompany] = useState(null);
+  const [companySearch, setCompanySearch] = useState("");
+  const [openOwnerGroups, setOpenOwnerGroups] = useState(() => new Set());
+  const toggleOwnerGroup = owner =>
+    setOpenOwnerGroups(prev => {
+      const next = new Set(prev);
+      next.has(owner) ? next.delete(owner) : next.add(owner);
+      return next;
+    });
   const [openPerson, setOpenPerson] = useState(null);
   const [showAddCompany, setShowAddCompany] = useState(false);
   const [showAdminUsers, setShowAdminUsers] = useState(false);
@@ -288,6 +297,20 @@ export default function App() {
     [companies, companyServices, tasks, person, todayDate]
   );
 
+  const companySearchMatch = useMemo(() => {
+    const q = companySearch.trim().toLowerCase();
+    if (!q) return null;
+    return companyRows.filter(c => c.short.toLowerCase().includes(q) || c.name.toLowerCase().includes(q));
+  }, [companyRows, companySearch]);
+
+  const companyGroups = useMemo(() => {
+    const groups = {};
+    companyRows.forEach(c => {
+      (groups[c.owner] = groups[c.owner] || []).push(c);
+    });
+    return Object.entries(groups).sort((a, b) => a[0].localeCompare(b[0], "th"));
+  }, [companyRows]);
+
   // Team overview (owner/manager only) — always shows every staff member
   // regardless of the "person" filter, since the point is comparing them.
   const teamRows = useMemo(() => {
@@ -373,32 +396,86 @@ export default function App() {
 
           {view === "company" && (
             <>
-              {!isEmployee && (
-                <div className="mb-3 flex justify-end">
+              <div className="mb-3 flex items-center justify-between gap-2">
+                <div className="relative w-full max-w-xs">
+                  <Search size={15} className="pointer-events-none absolute top-1/2 left-2.5 -translate-y-1/2 text-slate-400" />
+                  <input
+                    type="text"
+                    value={companySearch}
+                    onChange={e => setCompanySearch(e.target.value)}
+                    placeholder="ค้นหาบริษัท..."
+                    aria-label="ค้นหาบริษัท"
+                    className="w-full rounded-lg border border-slate-200 bg-white py-2 pr-3 pl-8 text-sm shadow-sm focus:border-brand-navy focus:ring-1 focus:ring-brand-navy focus:outline-none"
+                  />
+                </div>
+                {!isEmployee && (
                   <button
                     onClick={() => setShowAddCompany(true)}
-                    className="flex items-center gap-1.5 rounded-lg bg-brand-navy px-3.5 py-2 text-sm font-semibold text-white shadow-sm hover:bg-brand-navy-light"
+                    className="flex shrink-0 items-center gap-1.5 rounded-lg bg-brand-navy px-3.5 py-2 text-sm font-semibold text-white shadow-sm hover:bg-brand-navy-light"
                   >
                     <Plus size={16} /> เพิ่มบริษัท
                   </button>
-                </div>
-              )}
+                )}
+              </div>
 
-              {companyRows.map(c => (
-                <CompanyCard
-                  key={c.id}
-                  c={c}
-                  todayDate={todayDate}
-                  open={openCompany === c.id}
-                  onToggleOpen={() => setOpenCompany(openCompany === c.id ? null : c.id)}
-                  onToggle={toggle}
-                  onSkip={skip}
-                  onRestore={restore}
-                  onEdit={isEmployee ? undefined : setEditingCompany}
-                  onSetPaymentStatus={setPaymentStatus}
-                  onSetDueDate={setDueDate}
-                />
-              ))}
+              {companySearchMatch ? (
+                companySearchMatch.length === 0 ? (
+                  <div className="rounded-xl border border-slate-200 bg-white py-16 text-center text-sm text-slate-400 shadow-sm">
+                    ไม่พบบริษัทที่ตรงกับ &quot;{companySearch}&quot;
+                  </div>
+                ) : (
+                  companySearchMatch.map(c => (
+                    <CompanyCard
+                      key={c.id}
+                      c={c}
+                      todayDate={todayDate}
+                      open={openCompany === c.id}
+                      onToggleOpen={() => setOpenCompany(openCompany === c.id ? null : c.id)}
+                      onToggle={toggle}
+                      onSkip={skip}
+                      onRestore={restore}
+                      onEdit={isEmployee ? undefined : setEditingCompany}
+                      onSetPaymentStatus={setPaymentStatus}
+                      onSetDueDate={setDueDate}
+                    />
+                  ))
+                )
+              ) : companyGroups.length > 1 ? (
+                companyGroups.map(([owner, rows]) => (
+                    <CompanyGroup
+                      key={owner}
+                      owner={owner}
+                      rows={rows}
+                      open={openOwnerGroups.has(owner)}
+                      onToggleOpen={() => toggleOwnerGroup(owner)}
+                      todayDate={todayDate}
+                      openCompanyId={openCompany}
+                      onToggleCompany={id => setOpenCompany(openCompany === id ? null : id)}
+                      onToggle={toggle}
+                      onSkip={skip}
+                      onRestore={restore}
+                      onEdit={isEmployee ? undefined : setEditingCompany}
+                      onSetPaymentStatus={setPaymentStatus}
+                      onSetDueDate={setDueDate}
+                    />
+                  ))
+              ) : (
+                companyRows.map(c => (
+                    <CompanyCard
+                      key={c.id}
+                      c={c}
+                      todayDate={todayDate}
+                      open={openCompany === c.id}
+                      onToggleOpen={() => setOpenCompany(openCompany === c.id ? null : c.id)}
+                      onToggle={toggle}
+                      onSkip={skip}
+                      onRestore={restore}
+                      onEdit={isEmployee ? undefined : setEditingCompany}
+                      onSetPaymentStatus={setPaymentStatus}
+                      onSetDueDate={setDueDate}
+                    />
+                  ))
+              )}
             </>
           )}
 
