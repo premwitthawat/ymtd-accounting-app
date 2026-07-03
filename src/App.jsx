@@ -255,6 +255,10 @@ export default function App() {
     () => visible.filter(t => t.status === "done" && t.paymentStatus === "unpaid"),
     [visible]
   );
+  const paidTasks = useMemo(
+    () => visible.filter(t => t.status === "done" && t.paymentStatus === "paid"),
+    [visible]
+  );
 
   const groups = useMemo(() => {
     const g = {};
@@ -417,7 +421,14 @@ export default function App() {
             </>
           )}
 
-          {view === "unpaid" && <UnpaidList tasks={unpaidTasks} onMarkPaid={key => setPaymentStatus(key, "paid")} />}
+          {view === "unpaid" && (
+            <UnpaidList
+              tasks={unpaidTasks}
+              paidTasks={paidTasks}
+              onMarkPaid={key => setPaymentStatus(key, "paid")}
+              onUndoPaid={key => setPaymentStatus(key, "unpaid")}
+            />
+          )}
         </div>
 
         <AddCompanyModal
