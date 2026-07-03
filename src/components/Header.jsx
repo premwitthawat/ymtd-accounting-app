@@ -1,4 +1,4 @@
-import { HelpCircle, LogOut, Settings } from "lucide-react";
+import { HelpCircle, LogOut, Search, Settings } from "lucide-react";
 import MonthTimeline from "./MonthTimeline";
 import StatCards from "./StatCards";
 
@@ -18,6 +18,8 @@ export default function Header({
   person,
   setPerson,
   people,
+  search,
+  setSearch,
   overdue,
   dueSoon,
   doneCount,
@@ -102,6 +104,17 @@ export default function Header({
                 {l}
               </button>
             ))}
+          </div>
+          <div className="relative min-w-0 flex-1 max-w-xs">
+            <Search size={14} className="pointer-events-none absolute top-1/2 left-2.5 -translate-y-1/2 text-white/40" />
+            <input
+              type="text"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              placeholder="ค้นหาบริษัท..."
+              aria-label="ค้นหาบริษัท"
+              className="w-full rounded-lg border border-white/20 bg-white/10 py-1.5 pr-3 pl-8 text-sm text-white placeholder:text-white/40 shadow-sm focus:border-brand-gold focus:ring-1 focus:ring-brand-gold focus:outline-none"
+            />
           </div>
           {isEmployee ? (
             <span className="rounded-lg border border-white/20 bg-white/10 px-2.5 py-1.5 text-sm font-medium text-white">{person}</span>

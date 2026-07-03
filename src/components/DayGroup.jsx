@@ -2,8 +2,9 @@ import { CheckCheck } from "lucide-react";
 import { PHASE_LABEL } from "../data/tasks";
 import { getUrgency, URGENCY_STYLES, parseDate } from "../lib/urgency";
 import TaskRow from "./TaskRow";
+import CompanyChipGroup from "./CompanyChipRow";
 
-export default function DayGroup({ dateStr, dayTasks, todayDate, onToggle, onSkip, onRestore, onMarkGroupDone, onSetPaymentStatus, onSetDueDate }) {
+export default function DayGroup({ dateStr, dayTasks, todayDate, onToggle, onSkip, onRestore, onMarkGroupDone, onSetPaymentStatus, onSetDueDate, displayMode = "row" }) {
   const date = parseDate(dateStr);
   const urgency = getUrgency(date, todayDate);
   const u = URGENCY_STYLES[urgency];
@@ -26,20 +27,32 @@ export default function DayGroup({ dateStr, dayTasks, todayDate, onToggle, onSki
           <CheckCheck size={14} /> เสร็จทั้งกลุ่ม
         </button>
       </div>
-      <div className="divide-y divide-slate-100">
-        {sorted.map(t => (
-          <TaskRow
-            key={t.key}
-            t={t}
-            todayDate={todayDate}
-            onToggle={onToggle}
-            onSkip={onSkip}
-            onRestore={onRestore}
-            onSetPaymentStatus={onSetPaymentStatus}
-            onSetDueDate={onSetDueDate}
-          />
-        ))}
-      </div>
+      {displayMode === "chip" ? (
+        <CompanyChipGroup
+          tasks={sorted}
+          todayDate={todayDate}
+          onToggle={onToggle}
+          onSkip={onSkip}
+          onRestore={onRestore}
+          onSetPaymentStatus={onSetPaymentStatus}
+          onSetDueDate={onSetDueDate}
+        />
+      ) : (
+        <div className="divide-y divide-slate-100">
+          {sorted.map(t => (
+            <TaskRow
+              key={t.key}
+              t={t}
+              todayDate={todayDate}
+              onToggle={onToggle}
+              onSkip={onSkip}
+              onRestore={onRestore}
+              onSetPaymentStatus={onSetPaymentStatus}
+              onSetDueDate={onSetDueDate}
+            />
+          ))}
+        </div>
+      )}
     </div>
   );
 }

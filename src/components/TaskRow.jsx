@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Check, Minus, Undo2, Pencil } from "lucide-react";
+import { Check, Minus, Undo2, Pencil, CheckCheck } from "lucide-react";
 import { useTaskTypeStyle } from "../lib/TaskTypesContext";
 import { getUrgency, URGENCY_STYLES } from "../lib/urgency";
 
@@ -46,6 +46,7 @@ export default function TaskRow({ t, todayDate, onToggle, onSkip, onRestore, onS
         {editingDate ? (
           <input
             type="date"
+            lang="en-GB"
             autoFocus
             defaultValue={t.dueDateStr}
             onBlur={e => {
@@ -59,16 +60,21 @@ export default function TaskRow({ t, todayDate, onToggle, onSkip, onRestore, onS
             className="mt-0.5 rounded border border-slate-300 px-1.5 py-0.5 text-xs"
           />
         ) : (
-          <div className={`mt-0.5 flex items-center gap-1 text-xs ${skipped ? "text-slate-400" : urgency === "over" && !done ? "text-rose-600 font-semibold" : "text-slate-500"}`}>
-            <span>{skipped ? `ข้าม · ${t.note}` : `${u.label(t.dueDate, todayDate)} · ${t.owner}`}</span>
-            {!skipped && (
-              <button
-                onClick={() => setEditingDate(true)}
-                aria-label="แก้ไขวันครบกำหนด"
-                className="rounded p-0.5 text-slate-300 opacity-0 hover:bg-slate-100 hover:text-slate-600 group-hover:opacity-100"
-              >
-                <Pencil size={11} />
-              </button>
+          <div className={`mt-0.5 flex items-center text-xs ${skipped ? "text-slate-400" : urgency === "over" && !done ? "text-rose-600 font-semibold" : "text-slate-500"}`}>
+            {skipped ? (
+              <span>{`ข้าม · ${t.note}`}</span>
+            ) : (
+              <>
+                <span className="whitespace-nowrap">{u.label(t.dueDate, todayDate)}</span>
+                <button
+                  onClick={() => setEditingDate(true)}
+                  aria-label="แก้ไขวันครบกำหนด"
+                  className="ml-0.5 shrink-0 rounded p-0.5 text-slate-300 opacity-0 hover:bg-slate-100 hover:text-slate-600 group-hover:opacity-100"
+                >
+                  <Pencil size={10} />
+                </button>
+                <span className="truncate">&nbsp;· {t.owner}</span>
+              </>
             )}
           </div>
         )}
@@ -86,12 +92,20 @@ export default function TaskRow({ t, todayDate, onToggle, onSkip, onRestore, onS
       </div>
 
       {!done && !skipped && (
-        <button
-          onClick={() => onSkip(t)}
-          className="shrink-0 rounded-md border border-slate-200 px-2 py-1 text-xs text-slate-500 hover:border-slate-300 hover:text-slate-700"
-        >
-          ข้าม
-        </button>
+        <>
+          <button
+            onClick={() => onToggle(t)}
+            className="flex shrink-0 items-center gap-1 rounded-md bg-emerald-600 px-2 py-1 text-xs font-semibold text-white shadow-sm hover:bg-emerald-700"
+          >
+            <CheckCheck size={12} /> ทำรายการแล้ว
+          </button>
+          <button
+            onClick={() => onSkip(t)}
+            className="shrink-0 rounded-md border border-slate-200 px-2 py-1 text-xs text-slate-500 hover:border-slate-300 hover:text-slate-700"
+          >
+            ข้าม
+          </button>
+        </>
       )}
       {skipped && (
         <button

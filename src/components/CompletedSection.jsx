@@ -7,7 +7,7 @@ export default function CompletedSection({ tasks, todayDate, onToggle, onSkip, o
 
   if (tasks.length === 0) return null;
 
-  const sorted = [...tasks].sort((a, b) => a.dueDateStr.localeCompare(b.dueDateStr) || a.company.localeCompare(b.company, "th"));
+  const sorted = [...tasks].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 
   return (
     <div className="mt-2 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">

@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useCallback } from "react";
-import { Plus, Search } from "lucide-react";
+import { Plus, List, LayoutGrid } from "lucide-react";
 import { PEOPLE, TYPE_PALETTE } from "./data/tasks";
 import { supabase } from "./lib/supabaseClient";
 import { useAuth } from "./lib/auth";
@@ -33,6 +33,7 @@ const toTask = t => ({
   status: t.status,
   paymentStatus: t.payment_status,
   note: t.note,
+  updatedAt: t.updated_at,
 });
 const toCompanyService = cs => ({ id: cs.id, companyId: cs.company_id, type: cs.type, customDueDay: cs.custom_due_day, active: cs.active });
 const toTaskTypes = rows =>
@@ -70,8 +71,9 @@ export default function App() {
   }, [profile?.id, profile?.role, profile?.label]);
 
   const [typeFilter, setTypeFilter] = useState(null);
+  const [urgentDisplayMode, setUrgentDisplayMode] = useState("row");
   const [openCompany, setOpenCompany] = useState(null);
-  const [companySearch, setCompanySearch] = useState("");
+  const [search, setSearch] = useState("");
   const [showArchivedCompanies, setShowArchivedCompanies] = useState(false);
   const [openOwnerGroups, setOpenOwnerGroups] = useState(() => new Set());
   const toggleOwnerGroup = owner =>
@@ -256,6 +258,12 @@ export default function App() {
     await loadAll();
   };
 
+  const markCompanyPaid = async keys => {
+    const { error } = await supabase.from("tasks").update({ payment_status: "paid" }).in("key", keys);
+    if (error) console.error(error);
+    await loadAll();
+  };
+
   const setDueDate = async (key, dueDateStr) => {
     const { error } = await supabase.from("tasks").update({ due_date: dueDateStr }).eq("key", key);
     if (error) console.error(error);
@@ -271,9 +279,16 @@ export default function App() {
     await loadAll();
   };
 
+  const searchQuery = search.trim().toLowerCase();
   const visible = useMemo(
-    () => tasks.filter(t => (person === "ทุกคน" || t.owner === person) && (!typeFilter || t.type === typeFilter)),
-    [tasks, person, typeFilter]
+    () =>
+      tasks.filter(
+        t =>
+          (person === "ทุกคน" || t.owner === person) &&
+          (!typeFilter || t.type === typeFilter) &&
+          (!searchQuery || t.company.toLowerCase().includes(searchQuery))
+      ),
+    [tasks, person, typeFilter, searchQuery]
   );
 
   const pending = visible.filter(t => t.status === "pending");
@@ -320,10 +335,9 @@ export default function App() {
   );
 
   const companySearchMatch = useMemo(() => {
-    const q = companySearch.trim().toLowerCase();
-    if (!q) return null;
-    return companyRows.filter(c => c.short.toLowerCase().includes(q) || c.name.toLowerCase().includes(q));
-  }, [companyRows, companySearch]);
+    if (!searchQuery) return null;
+    return companyRows.filter(c => c.short.toLowerCase().includes(searchQuery) || c.name.toLowerCase().includes(searchQuery));
+  }, [companyRows, searchQuery]);
 
   const companyGroups = useMemo(() => {
     const groups = {};
@@ -369,6 +383,8 @@ export default function App() {
           person={person}
           setPerson={setPerson}
           people={PEOPLE}
+          search={search}
+          setSearch={setSearch}
           overdue={overdue.length}
           dueSoon={dueSoon.length}
           doneCount={doneCount}
@@ -386,6 +402,27 @@ export default function App() {
               <TypeFilterChips typeCounts={typeCounts} typeFilter={typeFilter} setTypeFilter={setTypeFilter} />
 
               <div className="min-w-0 flex-1">
+                <div className="mb-3 flex justify-end">
+                  <div className="inline-flex rounded-lg border border-slate-200 bg-white p-1 shadow-sm">
+                    <button
+                      onClick={() => setUrgentDisplayMode("row")}
+                      className={`flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-semibold transition-colors ${
+                        urgentDisplayMode === "row" ? "bg-brand-navy text-white" : "text-slate-500 hover:text-slate-700"
+                      }`}
+                    >
+                      <List size={14} /> รายแถว
+                    </button>
+                    <button
+                      onClick={() => setUrgentDisplayMode("chip")}
+                      className={`flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-semibold transition-colors ${
+                        urgentDisplayMode === "chip" ? "bg-brand-navy text-white" : "text-slate-500 hover:text-slate-700"
+                      }`}
+                    >
+                      <LayoutGrid size={14} /> รายบริษัท
+                    </button>
+                  </div>
+                </div>
+
                 {groups.length === 0 && <EmptyState typeFilter={typeFilter} person={person} />}
 
                 {groups.map(([dateStr, dayTasks]) => (
@@ -394,6 +431,7 @@ export default function App() {
                     dateStr={dateStr}
                     dayTasks={dayTasks}
                     todayDate={todayDate}
+                    displayMode={urgentDisplayMode}
                     onToggle={toggle}
                     onSkip={skip}
                     onRestore={restore}
@@ -418,27 +456,16 @@ export default function App() {
 
           {view === "company" && (
             <>
-              <div className="mb-3 flex items-center justify-between gap-2">
-                <div className="relative w-full max-w-xs">
-                  <Search size={15} className="pointer-events-none absolute top-1/2 left-2.5 -translate-y-1/2 text-slate-400" />
-                  <input
-                    type="text"
-                    value={companySearch}
-                    onChange={e => setCompanySearch(e.target.value)}
-                    placeholder="ค้นหาบริษัท..."
-                    aria-label="ค้นหาบริษัท"
-                    className="w-full rounded-lg border border-slate-200 bg-white py-2 pr-3 pl-8 text-sm shadow-sm focus:border-brand-navy focus:ring-1 focus:ring-brand-navy focus:outline-none"
-                  />
-                </div>
-                {!isEmployee && (
+              {!isEmployee && (
+                <div className="mb-3 flex items-center justify-end gap-2">
                   <button
                     onClick={() => setShowAddCompany(true)}
                     className="flex shrink-0 items-center gap-1.5 rounded-lg bg-brand-navy px-3.5 py-2 text-sm font-semibold text-white shadow-sm hover:bg-brand-navy-light"
                   >
                     <Plus size={16} /> เพิ่มบริษัท
                   </button>
-                )}
-              </div>
+                </div>
+              )}
 
               <label className="mb-3 flex cursor-pointer items-center gap-1.5 text-xs font-medium text-slate-500">
                 <input
@@ -453,7 +480,7 @@ export default function App() {
               {companySearchMatch ? (
                 companySearchMatch.length === 0 ? (
                   <div className="rounded-xl border border-slate-200 bg-white py-16 text-center text-sm text-slate-400 shadow-sm">
-                    ไม่พบบริษัทที่ตรงกับ &quot;{companySearch}&quot;
+                    ไม่พบบริษัทที่ตรงกับ &quot;{search}&quot;
                   </div>
                 ) : (
                   companySearchMatch.map(c => (
@@ -536,6 +563,7 @@ export default function App() {
               paidTasks={paidTasks}
               onMarkPaid={key => setPaymentStatus(key, "paid")}
               onUndoPaid={key => setPaymentStatus(key, "unpaid")}
+              onMarkCompanyPaid={markCompanyPaid}
             />
           )}
         </div>
