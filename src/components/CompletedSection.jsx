@@ -2,7 +2,7 @@ import { useState } from "react";
 import { ChevronDown, History } from "lucide-react";
 import TaskRow from "./TaskRow";
 
-export default function CompletedSection({ tasks, todayDate, onToggle, onSkip, onRestore, onSetPaymentStatus, onSetDueDate }) {
+export default function CompletedSection({ tasks, todayDate, onToggle, onSkip, onRestore, onSetPaymentStatus, onSetDueDate, onSetOwner }) {
   const [open, setOpen] = useState(false);
 
   if (tasks.length === 0) return null;
@@ -31,6 +31,7 @@ export default function CompletedSection({ tasks, todayDate, onToggle, onSkip, o
               onRestore={onRestore}
               onSetPaymentStatus={onSetPaymentStatus}
               onSetDueDate={onSetDueDate}
+              onSetOwner={onSetOwner}
             />
           ))}
         </div>

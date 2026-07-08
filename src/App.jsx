@@ -47,8 +47,16 @@ export default function App() {
 
   const [companies, setCompanies] = useState([]);
   const [companyServices, setCompanyServices] = useState([]);
-  const [tasks, setTasks] = useState([]);
+  const [rawTasks, setRawTasks] = useState([]);
   const [taskTypes, setTaskTypes] = useState({});
+  const companiesById = useMemo(() => Object.fromEntries(companies.map(c => [c.id, c])), [companies]);
+  // Decorate each task with the company's *current* default owner, purely
+  // client-side, so TaskRow can show a "restore to default" action without
+  // every intermediate component needing to know about companies at all.
+  const tasks = useMemo(
+    () => rawTasks.map(t => ({ ...t, defaultOwner: companiesById[t.companyId]?.owner ?? t.owner })),
+    [rawTasks, companiesById]
+  );
   const now = new Date();
   const today = now.getDate();
   const todayDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -63,6 +71,7 @@ export default function App() {
 
   const [selectedPeriod, setSelectedPeriod] = useState(currentPeriod);
   const isCurrentPeriod = selectedPeriod === currentPeriod;
+  const canReassign = !isEmployee && isCurrentPeriod;
   const shiftPeriod = delta => {
     const [y, m] = selectedPeriod.split("-").map(Number);
     const d = new Date(y, m - 1 + delta, 1);
@@ -124,7 +133,7 @@ export default function App() {
     if (taskTypesError) console.error(taskTypesError);
     setCompanies((companiesData || []).map(toCompany));
     setCompanyServices((servicesData || []).map(toCompanyService));
-    setTasks((tasksData || []).map(toTask));
+    setRawTasks((tasksData || []).map(toTask));
     setTaskTypes(toTaskTypes(taskTypesData || []));
   }, [selectedPeriod]);
 
@@ -206,10 +215,15 @@ export default function App() {
       return;
     }
 
-    // Keep the denormalized company/owner text on every existing task row
-    // in sync (covers a plain rename or a responsibility hand-off) —
-    // applies across all periods, not just the current one.
-    const { error: syncError } = await supabase.from("tasks").update({ company: short, owner }).eq("company_id", company.id);
+    // Keep the denormalized company name in sync on every existing task row
+    // (covers a plain rename) — applies across all periods, not just the
+    // current one. `owner` here is only the company's *default* responsible
+    // person used when generating future periods; it deliberately does NOT
+    // get pushed onto existing task rows, so a permanent hand-off doesn't
+    // rewrite who was actually responsible for past/already-generated
+    // periods. To reassign the *current* period's task, use the per-task
+    // owner control on that task row instead (see setTaskOwner below).
+    const { error: syncError } = await supabase.from("tasks").update({ company: short }).eq("company_id", company.id);
     if (syncError) {
       console.error(syncError);
       notifyError("อัปเดตชื่อบริษัทในงานเดิมไม่สำเร็จ");
@@ -329,6 +343,21 @@ export default function App() {
     if (error) {
       console.error(error);
       notifyError("บันทึกวันครบกำหนดไม่สำเร็จ กรุณาลองใหม่");
+    }
+    await loadAll();
+  };
+
+  // Reassigns just this one period's task — the company's default owner
+  // (used when next month's task is generated) is untouched, and past
+  // periods' tasks keep whatever owner they were recorded with. So a
+  // stand-in assignment (e.g. covering for someone on leave) naturally
+  // resets back to the regular owner the following month.
+  const setTaskOwner = async (key, owner) => {
+    if (!isCurrentPeriod) return notifyError("กำลังดูข้อมูลย้อนหลัง ไม่สามารถแก้ไขได้");
+    const { error } = await supabase.from("tasks").update({ owner }).eq("key", key);
+    if (error) {
+      console.error(error);
+      notifyError("เปลี่ยนผู้รับผิดชอบไม่สำเร็จ กรุณาลองใหม่");
     }
     await loadAll();
   };
@@ -509,6 +538,7 @@ export default function App() {
                     onMarkGroupDone={markGroupDone}
                     onSetPaymentStatus={setPaymentStatus}
                     onSetDueDate={setDueDate}
+                    onSetOwner={canReassign ? setTaskOwner : undefined}
                   />
                 ))}
 
@@ -520,6 +550,7 @@ export default function App() {
                   onRestore={restore}
                   onSetPaymentStatus={setPaymentStatus}
                   onSetDueDate={setDueDate}
+                  onSetOwner={canReassign ? setTaskOwner : undefined}
                 />
               </div>
             </div>
@@ -567,6 +598,7 @@ export default function App() {
                       onEdit={isEmployee || !isCurrentPeriod ? undefined : setEditingCompany}
                       onSetPaymentStatus={setPaymentStatus}
                       onSetDueDate={setDueDate}
+                      onSetOwner={canReassign ? setTaskOwner : undefined}
                     />
                   ))
                 )
@@ -587,6 +619,7 @@ export default function App() {
                       onEdit={isEmployee || !isCurrentPeriod ? undefined : setEditingCompany}
                       onSetPaymentStatus={setPaymentStatus}
                       onSetDueDate={setDueDate}
+                      onSetOwner={canReassign ? setTaskOwner : undefined}
                     />
                   ))
               ) : (
@@ -603,6 +636,7 @@ export default function App() {
                       onEdit={isEmployee || !isCurrentPeriod ? undefined : setEditingCompany}
                       onSetPaymentStatus={setPaymentStatus}
                       onSetDueDate={setDueDate}
+                      onSetOwner={canReassign ? setTaskOwner : undefined}
                     />
                   ))
               )}

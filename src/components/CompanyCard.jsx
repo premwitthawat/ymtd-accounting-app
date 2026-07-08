@@ -1,7 +1,7 @@
 import { ChevronDown, Pencil } from "lucide-react";
 import TaskRow from "./TaskRow";
 
-export default function CompanyCard({ c, todayDate, open, onToggleOpen, onToggle, onSkip, onRestore, onEdit, onSetPaymentStatus, onSetDueDate }) {
+export default function CompanyCard({ c, todayDate, open, onToggleOpen, onToggle, onSkip, onRestore, onEdit, onSetPaymentStatus, onSetDueDate, onSetOwner }) {
   const pct = Math.round((c.done / c.total) * 100);
   const barColor = pct === 100 ? "bg-emerald-600" : c.over ? "bg-rose-600" : "bg-brand-navy";
 
@@ -53,6 +53,7 @@ export default function CompanyCard({ c, todayDate, open, onToggleOpen, onToggle
                 onRestore={onRestore}
                 onSetPaymentStatus={onSetPaymentStatus}
                 onSetDueDate={onSetDueDate}
+                onSetOwner={onSetOwner}
                 showCompany={false}
               />
             ))}

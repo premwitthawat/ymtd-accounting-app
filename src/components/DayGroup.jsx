@@ -4,7 +4,7 @@ import { getUrgency, URGENCY_STYLES, parseDate } from "../lib/urgency";
 import TaskRow from "./TaskRow";
 import CompanyChipGroup from "./CompanyChipRow";
 
-export default function DayGroup({ dateStr, dayTasks, todayDate, onToggle, onSkip, onRestore, onMarkGroupDone, onSetPaymentStatus, onSetDueDate, displayMode = "row" }) {
+export default function DayGroup({ dateStr, dayTasks, todayDate, onToggle, onSkip, onRestore, onMarkGroupDone, onSetPaymentStatus, onSetDueDate, onSetOwner, displayMode = "row" }) {
   const date = parseDate(dateStr);
   const urgency = getUrgency(date, todayDate);
   const u = URGENCY_STYLES[urgency];
@@ -36,6 +36,7 @@ export default function DayGroup({ dateStr, dayTasks, todayDate, onToggle, onSki
           onRestore={onRestore}
           onSetPaymentStatus={onSetPaymentStatus}
           onSetDueDate={onSetDueDate}
+          onSetOwner={onSetOwner}
         />
       ) : (
         <div className="divide-y divide-slate-100">
@@ -49,6 +50,7 @@ export default function DayGroup({ dateStr, dayTasks, todayDate, onToggle, onSki
               onRestore={onRestore}
               onSetPaymentStatus={onSetPaymentStatus}
               onSetDueDate={onSetDueDate}
+              onSetOwner={onSetOwner}
             />
           ))}
         </div>

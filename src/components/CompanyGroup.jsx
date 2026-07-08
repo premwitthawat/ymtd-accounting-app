@@ -15,6 +15,7 @@ export default function CompanyGroup({
   onEdit,
   onSetPaymentStatus,
   onSetDueDate,
+  onSetOwner,
 }) {
   const totalOver = rows.reduce((sum, c) => sum + c.over, 0);
   const totalDone = rows.reduce((sum, c) => sum + c.done, 0);
@@ -48,6 +49,7 @@ export default function CompanyGroup({
               onEdit={onEdit}
               onSetPaymentStatus={onSetPaymentStatus}
               onSetDueDate={onSetDueDate}
+              onSetOwner={onSetOwner}
             />
           ))}
         </div>

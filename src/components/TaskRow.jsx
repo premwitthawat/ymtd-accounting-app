@@ -1,10 +1,14 @@
 import { useState } from "react";
-import { Check, Minus, Undo2, Pencil, CheckCheck } from "lucide-react";
+import { Check, Minus, Undo2, Pencil, CheckCheck, RotateCcw } from "lucide-react";
 import { useTaskTypeStyle } from "../lib/TaskTypesContext";
 import { getUrgency, URGENCY_STYLES } from "../lib/urgency";
+import { PEOPLE } from "../data/tasks";
 
-export default function TaskRow({ t, todayDate, onToggle, onSkip, onRestore, onSetPaymentStatus, onSetDueDate, showCompany = true }) {
+const ASSIGNEES = PEOPLE.filter(p => p !== "ทุกคน");
+
+export default function TaskRow({ t, todayDate, onToggle, onSkip, onRestore, onSetPaymentStatus, onSetDueDate, onSetOwner, showCompany = true }) {
   const [editingDate, setEditingDate] = useState(false);
+  const [editingOwner, setEditingOwner] = useState(false);
   const done = t.status === "done";
   const skipped = t.status === "skipped";
   const urgency = getUrgency(t.dueDate, todayDate);
@@ -73,7 +77,46 @@ export default function TaskRow({ t, todayDate, onToggle, onSkip, onRestore, onS
                 >
                   <Pencil size={10} />
                 </button>
-                <span className="truncate">&nbsp;· {t.owner}</span>
+                &nbsp;·{" "}
+                {editingOwner ? (
+                  <select
+                    autoFocus
+                    defaultValue={t.owner}
+                    onChange={e => {
+                      onSetOwner(t.key, e.target.value);
+                      setEditingOwner(false);
+                    }}
+                    onBlur={() => setEditingOwner(false)}
+                    className="rounded border border-slate-300 px-1 py-0.5 text-xs"
+                  >
+                    {ASSIGNEES.map(p => (
+                      <option key={p} value={p}>
+                        {p}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <span className="truncate">{t.owner}</span>
+                )}
+                {onSetOwner && !editingOwner && (
+                  <button
+                    onClick={() => setEditingOwner(true)}
+                    aria-label="เปลี่ยนผู้รับผิดชอบ"
+                    className="ml-0.5 shrink-0 rounded p-0.5 text-slate-300 opacity-0 hover:bg-slate-100 hover:text-slate-600 group-hover:opacity-100"
+                  >
+                    <Pencil size={10} />
+                  </button>
+                )}
+                {onSetOwner && !editingOwner && t.owner !== t.defaultOwner && (
+                  <button
+                    onClick={() => onSetOwner(t.key, t.defaultOwner)}
+                    aria-label={`คืนค่าผู้รับผิดชอบเป็น ${t.defaultOwner}`}
+                    title={`คืนค่าเป็นผู้รับผิดชอบหลัก (${t.defaultOwner})`}
+                    className="ml-0.5 shrink-0 rounded p-0.5 text-slate-300 hover:bg-slate-100 hover:text-slate-600"
+                  >
+                    <RotateCcw size={10} />
+                  </button>
+                )}
               </>
             )}
           </div>

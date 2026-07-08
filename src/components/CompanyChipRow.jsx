@@ -42,7 +42,7 @@ function TaskChip({ t, onToggle, onSkip, onRestore }) {
   );
 }
 
-export default function CompanyChipGroup({ tasks, todayDate, onToggle, onSkip, onRestore, onSetPaymentStatus, onSetDueDate }) {
+export default function CompanyChipGroup({ tasks, todayDate, onToggle, onSkip, onRestore, onSetPaymentStatus, onSetDueDate, onSetOwner }) {
   const [expandedCompanyId, setExpandedCompanyId] = useState(null);
 
   const byCompany = useMemo(() => {
@@ -84,6 +84,7 @@ export default function CompanyChipGroup({ tasks, todayDate, onToggle, onSkip, o
                     onRestore={onRestore}
                     onSetPaymentStatus={onSetPaymentStatus}
                     onSetDueDate={onSetDueDate}
+                    onSetOwner={onSetOwner}
                     showCompany={false}
                   />
                 ))}
