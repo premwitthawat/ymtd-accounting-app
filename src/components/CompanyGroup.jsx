@@ -16,6 +16,8 @@ export default function CompanyGroup({
   onSetPaymentStatus,
   onSetDueDate,
   onSetOwner,
+  canApprovePayments,
+  onPaymentError,
 }) {
   const totalOver = rows.reduce((sum, c) => sum + c.over, 0);
   const totalDone = rows.reduce((sum, c) => sum + c.done, 0);
@@ -50,6 +52,8 @@ export default function CompanyGroup({
               onSetPaymentStatus={onSetPaymentStatus}
               onSetDueDate={onSetDueDate}
               onSetOwner={onSetOwner}
+              canApprovePayments={canApprovePayments}
+              onPaymentError={onPaymentError}
             />
           ))}
         </div>

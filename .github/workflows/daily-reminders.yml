@@ -1,0 +1,34 @@
+name: Daily payment reminders
+
+on:
+  schedule:
+    # 09:00 Asia/Bangkok (UTC+7) = 02:00 UTC. GitHub Actions cron is
+    # UTC-only and best-effort (can fire a few minutes late under load),
+    # so scripts/send-reminders.js computes "today" (for its
+    # already-reminded-today check) from Asia/Bangkok wall-clock time
+    # rather than assuming an exact start.
+    - cron: "0 2 * * *"
+  workflow_dispatch: {} # lets someone re-run/test this on demand from the Actions tab
+
+jobs:
+  send-reminders:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Send reminders
+        run: node scripts/send-reminders.js
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}

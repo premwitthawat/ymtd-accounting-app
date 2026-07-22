@@ -8,6 +8,7 @@ import { getUrgency, parseDate } from "./lib/urgency";
 import Header from "./components/Header";
 import LoginScreen from "./components/LoginScreen";
 import AdminUsersPanel from "./components/AdminUsersPanel";
+import LineGroupsPanel from "./components/LineGroupsPanel";
 import HelpGuideModal from "./components/HelpGuideModal";
 import TypeFilterChips from "./components/TypeFilterChips";
 import DayGroup from "./components/DayGroup";
@@ -110,6 +111,7 @@ export default function App() {
   const [openPerson, setOpenPerson] = useState(null);
   const [showAddCompany, setShowAddCompany] = useState(false);
   const [showAdminUsers, setShowAdminUsers] = useState(false);
+  const [showLineGroups, setShowLineGroups] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
   const [editingCompany, setEditingCompany] = useState(null);
   const [toast, setToast] = useState(null);
@@ -493,6 +495,7 @@ export default function App() {
           profile={profile}
           onLogout={logout}
           onOpenAdmin={() => setShowAdminUsers(true)}
+          onOpenLineGroups={() => setShowLineGroups(true)}
           onOpenHelp={() => setShowHelp(true)}
         />
 
@@ -599,6 +602,8 @@ export default function App() {
                       onSetPaymentStatus={setPaymentStatus}
                       onSetDueDate={setDueDate}
                       onSetOwner={canReassign ? setTaskOwner : undefined}
+                      canApprovePayments={!isEmployee}
+                      onPaymentError={notifyError}
                     />
                   ))
                 )
@@ -620,6 +625,8 @@ export default function App() {
                       onSetPaymentStatus={setPaymentStatus}
                       onSetDueDate={setDueDate}
                       onSetOwner={canReassign ? setTaskOwner : undefined}
+                      canApprovePayments={!isEmployee}
+                      onPaymentError={notifyError}
                     />
                   ))
               ) : (
@@ -637,6 +644,8 @@ export default function App() {
                       onSetPaymentStatus={setPaymentStatus}
                       onSetDueDate={setDueDate}
                       onSetOwner={canReassign ? setTaskOwner : undefined}
+                      canApprovePayments={!isEmployee}
+                      onPaymentError={notifyError}
                     />
                   ))
               )}
@@ -692,6 +701,7 @@ export default function App() {
           onSetActive={setCompanyActive}
         />
         <AdminUsersPanel open={showAdminUsers} onClose={() => setShowAdminUsers(false)} profile={profile} />
+        <LineGroupsPanel open={showLineGroups} onClose={() => setShowLineGroups(false)} />
         <HelpGuideModal open={showHelp} onClose={() => setShowHelp(false)} />
         <Toast toast={toast} onDismiss={() => setToast(null)} />
       </div>

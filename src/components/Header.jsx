@@ -1,4 +1,4 @@
-import { ChevronLeft, ChevronRight, HelpCircle, LogOut, Search, Settings } from "lucide-react";
+import { ChevronLeft, ChevronRight, HelpCircle, LogOut, MessageCircle, Search, Settings } from "lucide-react";
 import MonthTimeline from "./MonthTimeline";
 import StatCards from "./StatCards";
 
@@ -32,6 +32,7 @@ export default function Header({
   profile,
   onLogout,
   onOpenAdmin,
+  onOpenLineGroups,
   onOpenHelp,
 }) {
   const canManageUsers = profile && ["owner", "manager"].includes(profile.role);
@@ -91,6 +92,15 @@ export default function Header({
                 >
                   <HelpCircle size={16} />
                 </button>
+                {canManageUsers && (
+                  <button
+                    onClick={onOpenLineGroups}
+                    aria-label="จัดการกลุ่ม LINE"
+                    className="rounded-md p-1.5 text-white/60 hover:bg-white/10 hover:text-white"
+                  >
+                    <MessageCircle size={16} />
+                  </button>
+                )}
                 {canManageUsers && (
                   <button
                     onClick={onOpenAdmin}

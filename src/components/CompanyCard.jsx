@@ -1,7 +1,22 @@
 import { ChevronDown, Pencil } from "lucide-react";
 import TaskRow from "./TaskRow";
+import CompanyPaymentRecords from "./CompanyPaymentRecords";
 
-export default function CompanyCard({ c, todayDate, open, onToggleOpen, onToggle, onSkip, onRestore, onEdit, onSetPaymentStatus, onSetDueDate, onSetOwner }) {
+export default function CompanyCard({
+  c,
+  todayDate,
+  open,
+  onToggleOpen,
+  onToggle,
+  onSkip,
+  onRestore,
+  onEdit,
+  onSetPaymentStatus,
+  onSetDueDate,
+  onSetOwner,
+  canApprovePayments,
+  onPaymentError,
+}) {
   const pct = Math.round((c.done / c.total) * 100);
   const barColor = pct === 100 ? "bg-emerald-600" : c.over ? "bg-rose-600" : "bg-brand-navy";
 
@@ -40,24 +55,27 @@ export default function CompanyCard({ c, todayDate, open, onToggleOpen, onToggle
         </div>
       </div>
       {open && (
-        <div className="divide-y divide-slate-100 border-t border-slate-100">
-          {[...c.ct]
-            .sort((a, b) => a.dueDateStr.localeCompare(b.dueDateStr))
-            .map(t => (
-              <TaskRow
-                key={t.key}
-                t={t}
-                todayDate={todayDate}
-                onToggle={onToggle}
-                onSkip={onSkip}
-                onRestore={onRestore}
-                onSetPaymentStatus={onSetPaymentStatus}
-                onSetDueDate={onSetDueDate}
-                onSetOwner={onSetOwner}
-                showCompany={false}
-              />
-            ))}
-        </div>
+        <>
+          <div className="divide-y divide-slate-100 border-t border-slate-100">
+            {[...c.ct]
+              .sort((a, b) => a.dueDateStr.localeCompare(b.dueDateStr))
+              .map(t => (
+                <TaskRow
+                  key={t.key}
+                  t={t}
+                  todayDate={todayDate}
+                  onToggle={onToggle}
+                  onSkip={onSkip}
+                  onRestore={onRestore}
+                  onSetPaymentStatus={onSetPaymentStatus}
+                  onSetDueDate={onSetDueDate}
+                  onSetOwner={onSetOwner}
+                  showCompany={false}
+                />
+              ))}
+          </div>
+          <CompanyPaymentRecords companyId={c.id} canApprove={canApprovePayments} onError={onPaymentError} />
+        </>
       )}
     </div>
   );
