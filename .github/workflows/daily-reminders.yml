@@ -20,7 +20,11 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          # @supabase/supabase-js 2.110 requires a native WebSocket impl
+          # (only present from Node 22+) to construct its Realtime
+          # client — createClient() throws under Node 20 even though
+          # this script never actually uses realtime subscriptions.
+          node-version: 22
           cache: npm
 
       - name: Install dependencies
