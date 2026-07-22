@@ -69,10 +69,13 @@ async function main() {
 
   console.log(`Found ${records.length} unpaid notice(s) sent, ${due.length} due for a reminder today`);
 
-  let sent = 0;
+  // One push per *group* per day, not per record — a company with
+  // several outstanding filings (e.g. paid together in one transfer,
+  // so one filing's slip clears while the others sit unpaid a while
+  // longer) would otherwise get a separate LINE message per filing,
+  // which reads as spam in a client-facing group.
+  const byGroup = new Map();
   let skipped = 0;
-  let failed = 0;
-
   for (const record of due) {
     const groupId = record.tasks?.companies?.line_group_id;
     if (!groupId) {
@@ -80,12 +83,20 @@ async function main() {
       skipped++;
       continue;
     }
+    if (!byGroup.has(groupId)) byGroup.set(groupId, []);
+    byGroup.get(groupId).push(record);
+  }
 
+  let sent = 0;
+  let failed = 0;
+
+  for (const [groupId, groupRecords] of byGroup) {
     const text = [
       "[แจ้งเตือนชำระเงิน]",
-      record.tasks.company,
-      `รายการ: ${record.tasks.type}`,
-      "ยังไม่ได้รับการชำระ กรุณาชำระและส่งสลิปในกลุ่มนี้",
+      groupRecords[0].tasks.company,
+      `ยังไม่ได้รับการชำระ ${groupRecords.length} รายการ:`,
+      ...groupRecords.map(r => `- ${r.tasks.type}`),
+      "กรุณาชำระและส่งสลิปในกลุ่มนี้",
     ].join("\n");
 
     try {
@@ -93,13 +104,16 @@ async function main() {
       const { error: updateErr } = await supabase
         .from("payment_records")
         .update({ last_reminded_at: new Date().toISOString() })
-        .eq("id", record.id);
+        .in(
+          "id",
+          groupRecords.map(r => r.id)
+        );
       if (updateErr) throw new Error(`failed to record last_reminded_at: ${updateErr.message}`);
-      console.log(`Sent reminder for payment_records ${record.id} -> group ${groupId}`);
-      sent++;
+      console.log(`Sent reminder for group ${groupId} (payment_records ${groupRecords.map(r => r.id).join(", ")})`);
+      sent += groupRecords.length;
     } catch (err) {
-      console.error(`Failed to send reminder for payment_records ${record.id}:`, err.message);
-      failed++;
+      console.error(`Failed to send reminder for group ${groupId}:`, err.message);
+      failed += groupRecords.length;
     }
   }
 

@@ -166,12 +166,17 @@ export default function CompanyPaymentRecords({ companyId, canApprove, onError }
               )}
               <span className={`ml-auto rounded-full px-2 py-0.5 font-semibold ${status.className}`}>{status.label}</span>
 
-              {record.slip_path && (
+              {(record.slip_path || (canApprove && record.status !== "paid")) && (
                 <button
                   onClick={() => setReviewing(record)}
                   className="flex items-center gap-1 rounded-md border border-slate-200 px-2 py-1 font-semibold text-slate-600 hover:border-slate-300"
                 >
-                  <ImageIcon size={12} /> {record.status === "pending_review" ? "ตรวจสอบสลิป" : "ดูสลิป"}
+                  <ImageIcon size={12} />
+                  {record.slip_path
+                    ? record.status === "pending_review"
+                      ? "ตรวจสอบสลิป"
+                      : "ดูสลิป"
+                    : "บันทึกว่าชำระแล้ว"}
                 </button>
               )}
             </div>
@@ -202,9 +207,15 @@ function SlipModal({ record, canApprove, busy, onApprove, onSaveAmount, onDismis
   const [imgUrl, setImgUrl] = useState(null);
   const [imgError, setImgError] = useState(false);
   const [amount, setAmount] = useState(record.amount ?? "");
+  const hasSlip = !!record.slip_path;
   const isPending = record.status === "pending_review";
+  const isPaid = record.status === "paid";
 
+  // No slip to sign a URL for when staff are closing this out by hand
+  // (e.g. several filings paid in one transfer, only one of which had a
+  // slip attached by line-webhook — the rest never get a slip_path).
   useEffect(() => {
+    if (!hasSlip) return;
     let cancelled = false;
     setImgUrl(null);
     setImgError(false);
@@ -219,7 +230,7 @@ function SlipModal({ record, canApprove, busy, onApprove, onSaveAmount, onDismis
     return () => {
       cancelled = true;
     };
-  }, [record.slip_path]);
+  }, [hasSlip, record.slip_path]);
 
   return (
     <div className="fixed inset-0 z-30 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
@@ -234,7 +245,11 @@ function SlipModal({ record, canApprove, busy, onApprove, onSaveAmount, onDismis
         </div>
 
         <div className="p-5">
-          {imgError ? (
+          {!hasSlip ? (
+            <div className="flex h-32 items-center justify-center rounded-lg border border-dashed border-slate-300 bg-slate-50 px-4 text-center text-sm text-slate-400">
+              ไม่มีสลิปแนบ — บันทึกด้วยมือ
+            </div>
+          ) : imgError ? (
             <div className="flex h-48 items-center justify-center rounded-lg bg-slate-50 px-4 text-center text-sm text-slate-400">
               ไม่สามารถโหลดรูปสลิปได้
             </div>
@@ -269,7 +284,7 @@ function SlipModal({ record, canApprove, busy, onApprove, onSaveAmount, onDismis
           <button onClick={onClose} className="rounded-lg border border-slate-200 px-3.5 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50">
             ปิด
           </button>
-          {canApprove && isPending && (
+          {canApprove && hasSlip && isPending && (
             <button
               onClick={onDismiss}
               disabled={busy}
@@ -278,16 +293,16 @@ function SlipModal({ record, canApprove, busy, onApprove, onSaveAmount, onDismis
               ไม่ใช่สลิป
             </button>
           )}
-          {canApprove && isPending && (
+          {canApprove && !isPaid && (
             <button
               onClick={() => onApprove(amount === "" ? null : Number(amount))}
               disabled={busy}
               className="rounded-lg bg-emerald-600 px-3.5 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
             >
-              {busy ? "กำลังอนุมัติ..." : "อนุมัติการชำระ"}
+              {busy ? "กำลังบันทึก..." : hasSlip ? "อนุมัติการชำระ" : "บันทึกว่าชำระแล้ว"}
             </button>
           )}
-          {canApprove && !isPending && (
+          {canApprove && isPaid && (
             <button
               onClick={() => onSaveAmount(amount === "" ? null : Number(amount))}
               disabled={busy}
