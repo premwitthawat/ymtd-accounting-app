@@ -2,12 +2,18 @@ name: Daily payment reminders
 
 on:
   schedule:
-    # 09:00 Asia/Bangkok (UTC+7) = 02:00 UTC. GitHub Actions cron is
-    # UTC-only and best-effort (can fire a few minutes late under load),
-    # so scripts/send-reminders.js computes "today" (for its
-    # already-reminded-today check) from Asia/Bangkok wall-clock time
-    # rather than assuming an exact start.
+    # 09:00 Asia/Bangkok (UTC+7) = 02:00 UTC — heads-up push for filings
+    # due tomorrow.
     - cron: "0 2 * * *"
+    # 16:00 Asia/Bangkok = 09:00 UTC — once-daily nudge for filings due
+    # today or already overdue (repeats daily from the due date until
+    # paid, same as the old single-run behavior used to for everything).
+    # GitHub Actions cron is UTC-only and best-effort (can fire a few
+    # minutes late under load), so scripts/send-reminders.js reads
+    # Asia/Bangkok wall-clock time at runtime — both for "today" (the
+    # already-reminded-today check) and to tell which of these two runs
+    # this is, rather than assuming an exact start.
+    - cron: "0 9 * * *"
   workflow_dispatch: {} # lets someone re-run/test this on demand from the Actions tab
 
 jobs:

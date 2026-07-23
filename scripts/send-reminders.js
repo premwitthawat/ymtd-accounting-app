@@ -1,14 +1,17 @@
-// Daily payment-notice follow-ups: once staff mark a filing's payment
-// notice as sent (payment_records.notice_sent_at, set from the app's
-// "ส่งแจ้งชำระแล้ว" button), remind that company's LINE group once a
-// day until the record leaves 'unpaid' (a slip comes in for review, or
-// it's approved as paid). Run by .github/workflows/daily-reminders.yml
-// on a daily cron.
+// Payment-notice follow-ups: once staff mark a filing's payment notice
+// as sent (payment_records.notice_sent_at, set from the app's
+// "ส่งแจ้งชำระแล้ว" button), remind that company's LINE group on a
+// schedule keyed to the filing's due_date —
+//   - 09:00 the day before: one heads-up push
+//   - 16:00 from the due date onward: a daily nudge, repeating every
+//     day the record stays 'unpaid' (a slip comes in for review, or
+//     it's approved as paid, stops it)
+// Run twice a day by .github/workflows/daily-reminders.yml.
 //
-// This replaced an earlier due_date-based reminder: this firm
-// calculates the amount and messages the client directly, and the
-// government filing due_date doesn't reliably line up with when that
-// actually happens, so due_date was reminding at the wrong times.
+// Still gated on notice_sent_at, same as before: this firm calculates
+// the amount and messages the client directly, so a filing nobody's
+// told the client about yet shouldn't get chased just because its due
+// date arrived.
 import { createClient } from "@supabase/supabase-js";
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
@@ -35,6 +38,20 @@ function bangkokDateString(iso) {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Bangkok" }).format(new Date(iso)); // en-CA formats as YYYY-MM-DD
 }
 
+// Which of the day's two runs this is, read from wall-clock time
+// rather than trusting which cron line fired — a workflow_dispatch
+// test run has no schedule slot of its own to report.
+function isBangkokMorning(iso) {
+  const hour = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Bangkok", hour: "2-digit", hourCycle: "h23" }).format(new Date(iso));
+  return Number(hour) < 12;
+}
+
+function addDays(dateStr, days) {
+  const d = new Date(`${dateStr}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
 async function pushLineMessage(groupId, text) {
   const res = await fetch("https://api.line.me/v2/bot/message/push", {
     method: "POST",
@@ -50,11 +67,13 @@ async function pushLineMessage(groupId, text) {
 }
 
 async function main() {
-  const today = bangkokDateString(new Date().toISOString());
+  const nowIso = new Date().toISOString();
+  const today = bangkokDateString(nowIso);
+  const morningRun = isBangkokMorning(nowIso);
 
   const { data: records, error } = await supabase
     .from("payment_records")
-    .select("id, last_reminded_at, tasks(type, company, companies(line_group_id))")
+    .select("id, last_reminded_at, tasks(type, company, due_date, companies(line_group_id))")
     .eq("status", "unpaid")
     .not("notice_sent_at", "is", null);
 
@@ -63,11 +82,24 @@ async function main() {
     process.exit(1);
   }
 
+  // Morning run: only the heads-up for filings due tomorrow. Afternoon
+  // run: filings due today, or already overdue — <= rather than ===
+  // so this still catches a filing whose notice only went out after
+  // its due date had already passed.
+  const tomorrow = addDays(today, 1);
+  const matchingThisRun = records.filter(r => {
+    const dueDate = r.tasks?.due_date;
+    if (!dueDate) return false;
+    return morningRun ? dueDate === tomorrow : dueDate <= today;
+  });
+
   // A manual workflow_dispatch re-run the same day (or any retry)
   // shouldn't double-message a client that was already reminded today.
-  const due = records.filter(r => !r.last_reminded_at || bangkokDateString(r.last_reminded_at) !== today);
+  const due = matchingThisRun.filter(r => !r.last_reminded_at || bangkokDateString(r.last_reminded_at) !== today);
 
-  console.log(`Found ${records.length} unpaid notice(s) sent, ${due.length} due for a reminder today`);
+  console.log(
+    `Found ${records.length} unpaid notice(s) sent, ${matchingThisRun.length} match this ${morningRun ? "morning" : "afternoon"} run, ${due.length} not yet reminded today`
+  );
 
   // One push per *group* per day, not per record — a company with
   // several outstanding filings (e.g. paid together in one transfer,
@@ -91,10 +123,11 @@ async function main() {
   let failed = 0;
 
   for (const [groupId, groupRecords] of byGroup) {
+    const urgency = morningRun ? "พรุ่งนี้" : "วันนี้";
     const text = [
       "[แจ้งเตือนชำระเงิน]",
       groupRecords[0].tasks.company,
-      `ยังไม่ได้รับการชำระ ${groupRecords.length} รายการ:`,
+      `ครบกำหนดชำระ${urgency} ${groupRecords.length} รายการ:`,
       ...groupRecords.map(r => `- ${r.tasks.type}`),
       "กรุณาชำระและส่งสลิปในกลุ่มนี้",
     ].join("\n");

@@ -22,12 +22,21 @@
 // LINE_CHANNEL_ACCESS_TOKEN (function secret) plus the standard
 // SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY, which Supabase injects into
 // every edge function automatically.
+//
+// Also handles the text "clear" (any casing) as a shortcut: staff
+// already confirmed payment in the group conversation itself (or
+// approved a slip verbally) and typing "clear" closes out that
+// company's oldest awaiting-payment record as paid directly, without
+// also having to open the app and click through — same record-matching
+// rule as slip images (oldest unpaid/pending_review record with
+// notice_sent_at set), just skipping straight to 'paid' with no slip
+// required.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 interface LineEvent {
   type: string;
   source?: { type: string; groupId?: string; userId?: string; roomId?: string };
-  message?: { id: string; type: string };
+  message?: { id: string; type: string; text?: string };
   [key: string]: unknown;
 }
 
@@ -166,6 +175,51 @@ async function handleSlipImage(groupId: string, messageId: string, accessToken: 
   console.log(`line-webhook: payment_records ${record.id} -> pending_review, slip=${fileName}`);
 }
 
+// Closes out the company's oldest awaiting-payment record as 'paid'
+// with no slip involved — staff typed "clear" because they already
+// know it's settled (told in the chat, or reviewed a slip that isn't
+// this app's concern to re-verify). Mirrors handleSlipImage's matching
+// rule (oldest unpaid/pending_review record with notice_sent_at set)
+// but also accepts 'pending_review' since this is often used to wave
+// through a slip that already came in without staff opening the app.
+async function handleClearCommand(groupId: string) {
+  const { data: company, error: companyErr } = await supabase
+    .from("companies")
+    .select("id")
+    .eq("line_group_id", groupId)
+    .maybeSingle();
+  if (companyErr) throw new Error(`company lookup failed: ${companyErr.message}`);
+  if (!company) {
+    console.warn(`line-webhook: groupId=${groupId} has no linked company, ignoring "clear"`);
+    return;
+  }
+
+  const { data: record, error: recordErr } = await supabase
+    .from("payment_records")
+    .select("id, task_id, tasks!inner(company_id)")
+    .eq("tasks.company_id", company.id)
+    .in("status", ["unpaid", "pending_review"])
+    .not("notice_sent_at", "is", null)
+    .order("notice_sent_at", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+  if (recordErr) throw new Error(`payment_records lookup failed: ${recordErr.message}`);
+  if (!record) {
+    console.warn(`line-webhook: company_id=${company.id} (groupId=${groupId}) has no awaiting-payment notice, ignoring "clear"`);
+    return;
+  }
+
+  const { error: writeErr } = await supabase.from("payment_records").update({ status: "paid" }).eq("id", record.id);
+  if (writeErr) throw new Error(`payment_records write failed: ${writeErr.message}`);
+
+  // Keeps the underlying task's own payment_status in sync, same as
+  // the app's in-page approve action does.
+  const { error: taskErr } = await supabase.from("tasks").update({ payment_status: "paid" }).eq("id", record.task_id);
+  if (taskErr) throw new Error(`tasks write failed: ${taskErr.message}`);
+
+  console.log(`line-webhook: payment_records ${record.id} -> paid via "clear"`);
+}
+
 Deno.serve(async req => {
   if (req.method !== "POST") return new Response("Method not allowed", { status: 405 });
 
@@ -212,6 +266,19 @@ Deno.serve(async req => {
         } else {
           await handleSlipImage(event.source.groupId, event.message.id, accessToken);
         }
+      }
+
+      // Trimmed + case-insensitive so "Clear" / "CLEAR" / trailing
+      // whitespace from a mobile keyboard all still match — this is
+      // typed under time pressure in a chat, not a form field.
+      if (
+        event.type === "message" &&
+        event.message?.type === "text" &&
+        event.message.text?.trim().toLowerCase() === "clear" &&
+        event.source?.type === "group" &&
+        event.source.groupId
+      ) {
+        await handleClearCommand(event.source.groupId);
       }
     } catch (err) {
       console.error("line-webhook: error handling event", event, err);
