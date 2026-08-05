@@ -22,10 +22,17 @@ export const TYPE_PALETTE = {
 
 export const DEFAULT_TYPE_STYLE = TYPE_PALETTE.slate;
 
-export const PHASE_LABEL = { 1: "ช่วงเตรียมเอกสาร", 2: "หัก ณ ที่จ่าย + กยศ. (ยื่นออนไลน์ถึง 15)", 3: "สปส. / ภพ.30 (ถึง 22–23)" };
+// No day numbers in these labels: the actual deadline is on the card
+// heading right above them, and it moves when a manager shifts the month
+// off a holiday (supabase/migrations/015_period_due_days.sql).
+export const PHASE_LABEL = { 1: "ช่วงเตรียมเอกสาร", 2: "หัก ณ ที่จ่าย + กยศ. (ยื่นออนไลน์)", 3: "สปส. / ภพ.30" };
 export const PEOPLE = ["ทุกคน", "พลอย", "ปูนา"];
+
+// `type` is which service each timeline tick tracks — App resolves its
+// real day for the month being viewed and hands MonthTimeline the result.
+// `day` is only the fallback for before task_types has loaded.
 export const DEADLINE_MARKERS = [
-  { day: 15, color: "bg-blue-400", label: "ภงด./กยศ." },
-  { day: 22, color: "bg-amber-400", label: "สปส." },
-  { day: 23, color: "bg-rose-400", label: "ภพ.30" },
+  { type: "ภงด.1", day: 15, color: "bg-blue-400", label: "ภงด./กยศ." },
+  { type: "สปส.", day: 22, color: "bg-amber-400", label: "สปส." },
+  { type: "ภพ.30", day: 23, color: "bg-rose-400", label: "ภพ.30" },
 ];

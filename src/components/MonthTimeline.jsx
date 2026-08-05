@@ -3,7 +3,10 @@ import { DEADLINE_MARKERS } from "../data/tasks";
 const TICKS = [5, 10, 15, 20, 25, 30];
 const MONTH_SCALE = 31;
 
-export default function MonthTimeline({ today, isCurrentPeriod = true }) {
+// `markers` comes from App with each deadline resolved for the month on
+// screen (a manager can shift a type when its usual day is a holiday) —
+// DEADLINE_MARKERS' own `day` is only the fallback for a first render.
+export default function MonthTimeline({ today, isCurrentPeriod = true, markers = DEADLINE_MARKERS }) {
   return (
     <div className="relative mt-5 h-9">
       <div className="absolute top-3 right-0 left-0 h-1.5 rounded-full bg-white/15" />
@@ -18,9 +21,9 @@ export default function MonthTimeline({ today, isCurrentPeriod = true }) {
         </span>
       ))}
 
-      {DEADLINE_MARKERS.map(({ day, color, label }) => (
+      {markers.map(({ day, color, label }) => (
         <div
-          key={day}
+          key={label}
           className="absolute top-0 flex -translate-x-1/2 flex-col items-center"
           style={{ left: `${(day / MONTH_SCALE) * 100}%` }}
         >

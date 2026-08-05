@@ -32,4 +32,16 @@
  * @property {string} created_at
  */
 
+/**
+ * One month's deadline for a whole service type, set by a manager when
+ * the type's standing day lands on a holiday — see
+ * supabase/migrations/015_period_due_days.sql. Absent for the usual
+ * month, where the type's default applies.
+ * @typedef {Object} PeriodDueDay
+ * @property {string} period "YYYY-MM", same key as tasks.period
+ * @property {string} type task_types.key, or an ad-hoc company_services.type
+ * @property {number} due_day day of month, clamped to the month's length when applied
+ * @property {string} updated_at
+ */
+
 export {};

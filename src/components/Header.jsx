@@ -1,4 +1,4 @@
-import { ChevronLeft, ChevronRight, HelpCircle, LogOut, MessageCircle, Search, Settings } from "lucide-react";
+import { CalendarClock, ChevronLeft, ChevronRight, HelpCircle, LogOut, MessageCircle, Search, Settings } from "lucide-react";
 import MonthTimeline from "./MonthTimeline";
 import StatCards from "./StatCards";
 
@@ -33,7 +33,9 @@ export default function Header({
   onLogout,
   onOpenAdmin,
   onOpenLineGroups,
+  onOpenDueDays,
   onOpenHelp,
+  timelineMarkers,
 }) {
   const canManageUsers = profile && ["owner", "manager"].includes(profile.role);
   const isEmployee = profile?.role === "employee";
@@ -94,6 +96,16 @@ export default function Header({
                 </button>
                 {canManageUsers && (
                   <button
+                    onClick={onOpenDueDays}
+                    aria-label="ตั้งค่าวันครบกำหนดของเดือนนี้"
+                    title="วันครบกำหนดของเดือนนี้"
+                    className="rounded-md p-1.5 text-white/60 hover:bg-white/10 hover:text-white"
+                  >
+                    <CalendarClock size={16} />
+                  </button>
+                )}
+                {canManageUsers && (
+                  <button
                     onClick={onOpenLineGroups}
                     aria-label="จัดการกลุ่ม LINE"
                     className="rounded-md p-1.5 text-white/60 hover:bg-white/10 hover:text-white"
@@ -118,7 +130,7 @@ export default function Header({
           </div>
         </div>
 
-        <MonthTimeline today={today} isCurrentPeriod={isCurrentPeriod} />
+        <MonthTimeline today={today} isCurrentPeriod={isCurrentPeriod} markers={timelineMarkers} />
 
         <div className="mt-4">
           <StatCards

@@ -1,14 +1,16 @@
 import { useState, useMemo, useEffect, useCallback } from "react";
 import { Plus, List, LayoutGrid } from "lucide-react";
-import { PEOPLE, TYPE_PALETTE } from "./data/tasks";
+import { DEADLINE_MARKERS, PEOPLE, TYPE_PALETTE } from "./data/tasks";
 import { supabase } from "./lib/supabaseClient";
 import { useAuth } from "./lib/auth";
 import { TaskTypesProvider } from "./lib/TaskTypesContext";
 import { getUrgency, parseDate } from "./lib/urgency";
+import { effectiveDueDay, periodDueDateStr } from "./lib/dueDates";
 import Header from "./components/Header";
 import LoginScreen from "./components/LoginScreen";
 import AdminUsersPanel from "./components/AdminUsersPanel";
 import LineGroupsPanel from "./components/LineGroupsPanel";
+import DueDayPanel from "./components/DueDayPanel";
 import HelpGuideModal from "./components/HelpGuideModal";
 import TypeFilterChips from "./components/TypeFilterChips";
 import DayGroup from "./components/DayGroup";
@@ -50,6 +52,10 @@ export default function App() {
   const [companyServices, setCompanyServices] = useState([]);
   const [rawTasks, setRawTasks] = useState([]);
   const [taskTypes, setTaskTypes] = useState({});
+  // { [type]: day } — this month's deadline for a whole type, set by a
+  // manager when the standing default lands on a holiday (see
+  // supabase/migrations/015_period_due_days.sql). Empty is the norm.
+  const [periodDueDays, setPeriodDueDays] = useState({});
   const companiesById = useMemo(() => Object.fromEntries(companies.map(c => [c.id, c])), [companies]);
   // Decorate each task with the company's *current* default owner, purely
   // client-side, so TaskRow can show a "restore to default" action without
@@ -112,6 +118,7 @@ export default function App() {
   const [showAddCompany, setShowAddCompany] = useState(false);
   const [showAdminUsers, setShowAdminUsers] = useState(false);
   const [showLineGroups, setShowLineGroups] = useState(false);
+  const [showDueDays, setShowDueDays] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
   const [editingCompany, setEditingCompany] = useState(null);
   const [toast, setToast] = useState(null);
@@ -123,20 +130,24 @@ export default function App() {
       { data: servicesData, error: servicesError },
       { data: tasksData, error: tasksError },
       { data: taskTypesData, error: taskTypesError },
+      { data: dueDaysData, error: dueDaysError },
     ] = await Promise.all([
       supabase.from("companies").select("*").order("id"),
       supabase.from("company_services").select("*").order("id"),
       supabase.from("tasks").select("*").eq("period", selectedPeriod).order("id"),
       supabase.from("task_types").select("*").order("created_at"),
+      supabase.from("period_due_days").select("*").eq("period", selectedPeriod),
     ]);
     if (companiesError) console.error(companiesError);
     if (servicesError) console.error(servicesError);
     if (tasksError) console.error(tasksError);
     if (taskTypesError) console.error(taskTypesError);
+    if (dueDaysError) console.error(dueDaysError);
     setCompanies((companiesData || []).map(toCompany));
     setCompanyServices((servicesData || []).map(toCompanyService));
     setRawTasks((tasksData || []).map(toTask));
     setTaskTypes(toTaskTypes(taskTypesData || []));
+    setPeriodDueDays(Object.fromEntries((dueDaysData || []).map(r => [r.type, r.due_day])));
   }, [selectedPeriod]);
 
   useEffect(() => {
@@ -153,6 +164,7 @@ export default function App() {
       .on("postgres_changes", { event: "*", schema: "public", table: "company_services" }, loadAll)
       .on("postgres_changes", { event: "*", schema: "public", table: "tasks" }, loadAll)
       .on("postgres_changes", { event: "*", schema: "public", table: "task_types" }, loadAll)
+      .on("postgres_changes", { event: "*", schema: "public", table: "period_due_days" }, loadAll)
       .subscribe();
     return () => supabase.removeChannel(channel);
   }, [session, loadAll]);
@@ -180,6 +192,11 @@ export default function App() {
     if (csError) console.error(csError);
     const { error: tasksError } = await supabase.from("tasks").update({ type: newKey }).eq("type", oldKey);
     if (tasksError) console.error(tasksError);
+    // period_due_days is keyed by the type name too, so a rename has to
+    // carry any month's deadline override with it or it silently stops
+    // applying.
+    const { error: dueDaysError } = await supabase.from("period_due_days").update({ type: newKey }).eq("type", oldKey);
+    if (dueDaysError) console.error(dueDaysError);
     await loadAll();
   };
 
@@ -349,6 +366,73 @@ export default function App() {
     await loadAll();
   };
 
+  // Moves a whole type's deadline for this month — the holiday case,
+  // where the 15th isn't a business day and every company's ภงด. shifts
+  // together. `day: null` clears the override and puts the type back on
+  // its standing default.
+  //
+  // The stored override only governs task rows generated from here on
+  // (a company added later this month), so the already-generated rows
+  // get rewritten here as well. Tasks are grouped by resulting date so
+  // this stays two or three requests rather than one per company.
+  const applyPeriodDueDays = async entries => {
+    if (!isCurrentPeriod) {
+      notifyError("กำลังดูข้อมูลย้อนหลัง ไม่สามารถแก้ไขได้");
+      return false;
+    }
+
+    const overrides = entries.filter(e => e.day != null);
+    const cleared = entries.filter(e => e.day == null).map(e => e.type);
+
+    if (overrides.length) {
+      const rows = overrides.map(e => ({ period: selectedPeriod, type: e.type, due_day: e.day, updated_at: new Date().toISOString() }));
+      const { error } = await supabase.from("period_due_days").upsert(rows, { onConflict: "period,type" });
+      if (error) {
+        console.error(error);
+        notifyError("บันทึกวันครบกำหนดของเดือนนี้ไม่สำเร็จ กรุณาลองใหม่");
+        return false;
+      }
+    }
+
+    if (cleared.length) {
+      const { error } = await supabase.from("period_due_days").delete().eq("period", selectedPeriod).in("type", cleared);
+      if (error) {
+        console.error(error);
+        notifyError("คืนค่าวันครบกำหนดเริ่มต้นไม่สำเร็จ กรุณาลองใหม่");
+        return false;
+      }
+    }
+
+    const keysByDate = {};
+    entries.forEach(({ type, day }) => {
+      rawTasks
+        .filter(t => t.type === type)
+        .forEach(t => {
+          // Resolved per task, not per type: clearing an override has to
+          // put each company back on *its* day, which for an ad-hoc
+          // service is the company's own custom day, not the catalog's.
+          const custom = companyServices.find(cs => cs.companyId === t.companyId && cs.type === type)?.customDueDay;
+          const resolved = effectiveDueDay({ override: day, customDueDay: custom, defaultDueDay: taskTypes[type]?.dueDay });
+          if (!resolved) return;
+          const dateStr = periodDueDateStr(selectedPeriod, resolved);
+          if (t.dueDateStr === dateStr) return;
+          (keysByDate[dateStr] = keysByDate[dateStr] || []).push(t.key);
+        });
+    });
+
+    for (const [dateStr, keys] of Object.entries(keysByDate)) {
+      const { error } = await supabase.from("tasks").update({ due_date: dateStr }).in("key", keys);
+      if (error) {
+        console.error(error);
+        notifyError("เลื่อนวันครบกำหนดของงานเดือนนี้ไม่สำเร็จ กรุณาลองใหม่");
+        return false;
+      }
+    }
+
+    await loadAll();
+    return true;
+  };
+
   // Reassigns just this one period's task — the company's default owner
   // (used when next month's task is generated) is untouched, and past
   // periods' tasks keep whatever owner they were recorded with. So a
@@ -417,6 +501,23 @@ export default function App() {
       .forEach(t => (c[t.type] = (c[t.type] || 0) + 1));
     return c;
   }, [tasks, person]);
+
+  // Unfiltered, and counting done/skipped rows too — moving a deadline
+  // moves every task of that type in the month, not just the ones the
+  // current filters happen to show.
+  const periodTypeCounts = useMemo(() => {
+    const counts = {};
+    rawTasks.forEach(t => (counts[t.type] = (counts[t.type] || 0) + 1));
+    return counts;
+  }, [rawTasks]);
+
+  // The timeline's deadline ticks follow whatever this month's deadlines
+  // actually are — a marker still reading 15 after a manager moved ภงด.
+  // to 17 is exactly the sort of stale hardcoded date this replaced.
+  const timelineMarkers = useMemo(
+    () => DEADLINE_MARKERS.map(m => ({ ...m, day: periodDueDays[m.type] ?? taskTypes[m.type]?.dueDay ?? m.day })),
+    [periodDueDays, taskTypes]
+  );
 
   const companyRows = useMemo(
     () =>
@@ -496,7 +597,9 @@ export default function App() {
           onLogout={logout}
           onOpenAdmin={() => setShowAdminUsers(true)}
           onOpenLineGroups={() => setShowLineGroups(true)}
+          onOpenDueDays={() => setShowDueDays(true)}
           onOpenHelp={() => setShowHelp(true)}
+          timelineMarkers={timelineMarkers}
         />
 
         <div className="mx-auto max-w-6xl px-4 py-4 sm:px-6">
@@ -702,6 +805,17 @@ export default function App() {
         />
         <AdminUsersPanel open={showAdminUsers} onClose={() => setShowAdminUsers(false)} profile={profile} />
         <LineGroupsPanel open={showLineGroups} onClose={() => setShowLineGroups(false)} />
+        <DueDayPanel
+          open={showDueDays}
+          onClose={() => setShowDueDays(false)}
+          period={selectedPeriod}
+          periodLabel={`${selectedMonthAbbrev} ${selectedYearLabel}`}
+          taskTypes={taskTypes}
+          overrides={periodDueDays}
+          taskCounts={periodTypeCounts}
+          onApply={applyPeriodDueDays}
+          readOnly={isEmployee || !isCurrentPeriod}
+        />
         <HelpGuideModal open={showHelp} onClose={() => setShowHelp(false)} />
         <Toast toast={toast} onDismiss={() => setToast(null)} />
       </div>
