@@ -47,11 +47,14 @@ function bangkokYearMonth(date: Date): { year: string; month: string } {
   };
 }
 
-// Storage keys treat "/" as folder separators, so a "/" inside a company
-// short name or a FlowAccount document number ("RE-2026/08/001" style)
-// would silently create extra nesting. Same sanitizer line-webhook uses
-// for slips, extended to the document number.
-const safePathPart = (s: string) => s.replace(/[/\\]/g, "-");
+// Storage rejects non-ASCII object keys outright (InvalidKey — verified
+// against the local stack), so the company folder can't be the Thai
+// `short` the way the brief sketched; receipts live under company-{id}
+// instead, which also keeps one company's history in one folder if its
+// short name is ever edited. Document numbers still pass through this
+// sanitizer: "/" would nest ("RE-2026/08/001"), and anything else
+// non-ASCII gets the same treatment as a precaution.
+const safePathPart = (s: string) => s.replace(/[^A-Za-z0-9._-]/g, "-");
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -235,12 +238,12 @@ async function exportPdfBase64(accessToken: string, documentId: string): Promise
 // payment_records.receipt_path. Factored out because it runs from two
 // places: the happy path, and the retry that heals a record whose
 // receipt exists but whose earlier PDF export failed.
-async function storePdf(admin: Admin, accessToken: string, doc: IssuedDocument, companyShort: string, recordId: string): Promise<string> {
+async function storePdf(admin: Admin, accessToken: string, doc: IssuedDocument, companyId: number, recordId: string): Promise<string> {
   const pdfBase64 = await exportPdfBase64(accessToken, doc.documentId);
   const bytes = Uint8Array.from(atob(pdfBase64), c => c.charCodeAt(0));
 
   const { year, month } = bangkokYearMonth(new Date());
-  const path = `${safePathPart(companyShort)}/${year}/${month}/${safePathPart(doc.documentNumber)}.pdf`;
+  const path = `company-${companyId}/${year}/${month}/${safePathPart(doc.documentNumber)}.pdf`;
   // upsert: a healing retry may re-export the same document to the same
   // path — overwriting an identical PDF is fine, erroring on it is not.
   const { error: uploadErr } = await admin.storage.from("receipts").upload(path, bytes, { contentType: "application/pdf", upsert: true });
@@ -314,7 +317,7 @@ Deno.serve(async req => {
     if (!receiptPath) {
       try {
         const accessToken = await getAccessToken(admin);
-        receiptPath = await storePdf(admin, accessToken, doc, company.short, record.id);
+        receiptPath = await storePdf(admin, accessToken, doc, company.id, record.id);
       } catch (err) {
         console.error("flowaccount-issue-receipt: PDF heal failed", err);
         return json({ error: `ใบเสร็จ ${doc.documentNumber} ออกแล้ว แต่ดึง PDF ไม่สำเร็จ ลองใหม่อีกครั้ง`, document_number: doc.documentNumber }, 502);
@@ -381,7 +384,7 @@ Deno.serve(async req => {
 
     let receiptPath: string | null = null;
     try {
-      receiptPath = await storePdf(admin, accessToken, doc, company.short, record.id);
+      receiptPath = await storePdf(admin, accessToken, doc, company.id, record.id);
     } catch (pdfErr) {
       // Document is already saved above — surfacing the PDF failure is
       // safe, and the next click takes the heal path instead of
