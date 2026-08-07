@@ -1,24 +1,19 @@
 // Issues a FlowAccount receipt (ใบเสร็จรับเงิน) for one *paid*
 // payment_records row, on an explicit staff click from
 // CompanyPaymentRecords.jsx — deliberately NOT auto-fired when status
-// flips to 'paid': a tax document issued with the wrong amount has to
-// be unwound with a credit note, which costs far more than making a
-// human confirm the numbers once. Auto-issue is a later phase, after
-// master data (tax_id / unit_price) has proven itself clean.
+// flips to 'paid': these are per-filing payments whose amounts staff
+// read off slips, so a human confirms the numbers in the modal first.
+// (The monthly service-fee invoices in flowaccount-invoices DO
+// auto-issue their receipt — there the amount was fixed when the
+// invoice went out, so nothing is guessed.)
 //
 // Modeled on admin-users/index.ts (CORS preflight + JWT + role
 // re-check against profiles), not line-webhook/index.ts — that one has
 // no CORS because LINE posts to it directly, while this is called from
-// the browser.
-//
-// Talks to FlowAccount OpenAPI (client-credentials OAuth). Defaults
-// point at the SANDBOX — production is opt-in via env, never the
-// fallback, so a half-configured deploy can't issue real documents.
-// FLOWACCOUNT_MOCK=true short-circuits every outbound call with
-// shape-identical fakes: real credentials take 1–2 business days to be
-// approved, and the rest of the flow (validation, storage, DB writes,
-// idempotency) shouldn't have to wait for them to be testable.
+// the browser. FlowAccount specifics (token cache, contact reuse, mock
+// mode, payload shape) live in ../_shared/flowaccount.ts.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createDocument, ensureContact, exportPdfToBucket, getAccessToken, MOCK, round2, type IssuedDocument } from "../_shared/flowaccount.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -30,228 +25,6 @@ function json(body: unknown, status = 200) {
     status,
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
-}
-
-const BASE_URL = Deno.env.get("FLOWACCOUNT_BASE_URL") ?? "https://openapi.flowaccount.com/test";
-const TOKEN_URL = Deno.env.get("FLOWACCOUNT_TOKEN_URL") ?? "https://openapi.flowaccount.com/token";
-const MOCK = Deno.env.get("FLOWACCOUNT_MOCK") === "true";
-
-// Copied verbatim from line-webhook/index.ts (per the brief: reuse, don't
-// reinvent) — the year/month folder in the storage path should follow the
-// calendar month staff experience, not the edge region's clock.
-function bangkokYearMonth(date: Date): { year: string; month: string } {
-  const parts = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Bangkok", year: "numeric", month: "2-digit" }).formatToParts(date);
-  return {
-    year: parts.find(p => p.type === "year")!.value,
-    month: parts.find(p => p.type === "month")!.value,
-  };
-}
-
-// Storage rejects non-ASCII object keys outright (InvalidKey — verified
-// against the local stack), so the company folder can't be the Thai
-// `short` the way the brief sketched; receipts live under company-{id}
-// instead, which also keeps one company's history in one folder if its
-// short name is ever edited. Document numbers still pass through this
-// sanitizer: "/" would nest ("RE-2026/08/001"), and anything else
-// non-ASCII gets the same treatment as a precaution.
-const safePathPart = (s: string) => s.replace(/[^A-Za-z0-9._-]/g, "-");
-
-const round2 = (n: number) => Math.round(n * 100) / 100;
-
-// FlowAccount's own rate-limit announcement recommends exponential
-// backoff on 429 (sandbox allows just 20 req/min, and one receipt costs
-// up to 4 calls: token + contact + create + export). Retry-After is
-// honored when present; otherwise 1s/2s/4s.
-async function flowFetch(url: string, init: RequestInit, attempt = 0): Promise<Response> {
-  const res = await fetch(url, init);
-  if (res.status === 429 && attempt < 3) {
-    const retryAfter = Number(res.headers.get("retry-after"));
-    const delayMs = retryAfter > 0 ? retryAfter * 1000 : 1000 * 2 ** attempt;
-    await new Promise(resolve => setTimeout(resolve, delayMs));
-    return flowFetch(url, init, attempt + 1);
-  }
-  return res;
-}
-
-// A tiny but structurally valid PDF, so the mock path exercises the
-// exact same decode → upload → signed-URL pipeline as the real one and
-// "ดูใบเสร็จ" opens something a PDF viewer accepts.
-const MOCK_PDF_BASE64 = btoa(
-  "%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 200 100]>>endobj\ntrailer<</Size 4/Root 1 0 R>>\n%%EOF"
-);
-
-// deno-lint-ignore no-explicit-any
-type Admin = ReturnType<typeof createClient<any>>;
-
-// Client-credentials token, cached in integration_tokens (service-role
-// only, see 017). The 60s slack means a token that *technically* has a
-// few seconds left never gets used for a multi-call sequence that would
-// outlive it mid-flight.
-async function getAccessToken(admin: Admin): Promise<string> {
-  if (MOCK) return "mock-token";
-
-  const { data: cached } = await admin
-    .from("integration_tokens")
-    .select("access_token, expires_at")
-    .eq("provider", "flowaccount")
-    .maybeSingle();
-  if (cached && new Date(cached.expires_at).getTime() - Date.now() > 60_000) {
-    return cached.access_token;
-  }
-
-  const clientId = Deno.env.get("FLOWACCOUNT_CLIENT_ID");
-  const clientSecret = Deno.env.get("FLOWACCOUNT_CLIENT_SECRET");
-  if (!clientId || !clientSecret) {
-    throw new Error("FLOWACCOUNT_CLIENT_ID / FLOWACCOUNT_CLIENT_SECRET not configured");
-  }
-
-  const res = await flowFetch(TOKEN_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({ grant_type: "client_credentials", client_id: clientId, client_secret: clientSecret, scope: "flowaccount-api" }),
-  });
-  if (!res.ok) throw new Error(`FlowAccount token request failed (${res.status}): ${await res.text()}`);
-  const token = (await res.json()) as { access_token: string; expires_in: number };
-
-  const { error } = await admin.from("integration_tokens").upsert({
-    provider: "flowaccount",
-    access_token: token.access_token,
-    expires_at: new Date(Date.now() + token.expires_in * 1000).toISOString(),
-    updated_at: new Date().toISOString(),
-  });
-  if (error) throw new Error(`token cache write failed: ${error.message}`);
-  return token.access_token;
-}
-
-// One FlowAccount contact per company, created lazily on the first
-// receipt and cached on companies.flowaccount_contact_id so repeat
-// receipts don't pile duplicate contacts into the FlowAccount address
-// book.
-async function ensureContact(
-  admin: Admin,
-  accessToken: string,
-  company: { id: number; name: string; tax_id: string; address: string | null; branch_code: string | null; flowaccount_contact_id: string | null }
-): Promise<string> {
-  if (company.flowaccount_contact_id) return company.flowaccount_contact_id;
-
-  let contactId: string;
-  if (MOCK) {
-    contactId = `mock-contact-${company.id}`;
-  } else {
-    const res = await flowFetch(`${BASE_URL}/contacts`, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        name: company.name,
-        taxId: company.tax_id,
-        address: company.address ?? "",
-        branchCode: company.branch_code ?? "00000",
-        contactType: 3, // juristic person — every client billed through this app is one
-      }),
-    });
-    const body = await res.json().catch(() => ({}));
-    if (!res.ok || body.status === false) {
-      throw new Error(`FlowAccount contact create failed (${res.status}): ${JSON.stringify(body)}`);
-    }
-    contactId = String(body.data?.id ?? body.data?.contactId ?? body.id);
-  }
-
-  const { error } = await admin.from("companies").update({ flowaccount_contact_id: contactId }).eq("id", company.id);
-  if (error) throw new Error(`contact id write-back failed: ${error.message}`);
-  return contactId;
-}
-
-interface IssuedDocument {
-  documentId: string;
-  documentNumber: string;
-}
-
-async function createReceipt(
-  accessToken: string,
-  args: {
-    recordId: string;
-    contactId: string;
-    company: { name: string; tax_id: string; address: string | null; branch_code: string | null };
-    productName: string;
-    amountGross: number;
-    whtRate: number;
-    whtAmount: number;
-  }
-): Promise<IssuedDocument> {
-  if (MOCK) {
-    // Deterministic per record — calling the mock twice for the same
-    // record produces the same "document", mirroring how the DB unique
-    // index would treat a real duplicate.
-    const { year, month } = bangkokYearMonth(new Date());
-    return { documentId: `mock-${args.recordId}`, documentNumber: `MOCK${year}${month}-${args.recordId.slice(0, 8)}` };
-  }
-
-  // Field names follow FlowAccount's inline-document schema. Exact
-  // acceptance can only be proven against the sandbox once credentials
-  // arrive — flagged in the work report; the mock covers everything
-  // downstream of this call in the meantime.
-  const res = await flowFetch(`${BASE_URL}/receipts`, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      contactId: args.contactId,
-      contactName: args.company.name,
-      contactTaxId: args.company.tax_id,
-      contactAddress: args.company.address ?? "",
-      contactBranch: args.company.branch_code ?? "00000",
-      publishedOn: new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Bangkok" }).format(new Date()),
-      documentLines: [{ productName: args.productName, quantity: 1, unitName: "งาน", pricePerUnit: args.amountGross, total: args.amountGross }],
-      subTotal: args.amountGross,
-      totalAfterDiscount: args.amountGross,
-      isVatInclusive: false,
-      grandTotal: args.amountGross,
-      withholdingTaxPercent: args.whtRate,
-      withholdingTaxAmount: args.whtAmount,
-    }),
-  });
-  const body = await res.json().catch(() => ({}));
-  if (!res.ok || body.status === false) {
-    throw new Error(`FlowAccount receipt create failed (${res.status}): ${JSON.stringify(body)}`);
-  }
-  const doc = body.data ?? body;
-  return {
-    documentId: String(doc.recordId ?? doc.documentId ?? doc.id),
-    documentNumber: String(doc.documentSerial ?? doc.documentNumber ?? doc.recordId ?? doc.id),
-  };
-}
-
-async function exportPdfBase64(accessToken: string, documentId: string): Promise<string> {
-  if (MOCK) return MOCK_PDF_BASE64;
-
-  const res = await flowFetch(`${BASE_URL}/receipts/${documentId}/export-pdf/base64`, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${accessToken}` },
-  });
-  const body = await res.json().catch(() => ({}));
-  if (!res.ok || body.status === false || !body.data) {
-    throw new Error(`FlowAccount PDF export failed (${res.status}): ${JSON.stringify(body)}`);
-  }
-  return body.data as string;
-}
-
-// Downloads the PDF and stores it, returning the object path written to
-// payment_records.receipt_path. Factored out because it runs from two
-// places: the happy path, and the retry that heals a record whose
-// receipt exists but whose earlier PDF export failed.
-async function storePdf(admin: Admin, accessToken: string, doc: IssuedDocument, companyId: number, recordId: string): Promise<string> {
-  const pdfBase64 = await exportPdfBase64(accessToken, doc.documentId);
-  const bytes = Uint8Array.from(atob(pdfBase64), c => c.charCodeAt(0));
-
-  const { year, month } = bangkokYearMonth(new Date());
-  const path = `company-${companyId}/${year}/${month}/${safePathPart(doc.documentNumber)}.pdf`;
-  // upsert: a healing retry may re-export the same document to the same
-  // path — overwriting an identical PDF is fine, erroring on it is not.
-  const { error: uploadErr } = await admin.storage.from("receipts").upload(path, bytes, { contentType: "application/pdf", upsert: true });
-  if (uploadErr) throw new Error(`receipt upload failed: ${uploadErr.message}`);
-
-  const { error: writeErr } = await admin.from("payment_records").update({ receipt_path: path }).eq("id", recordId);
-  if (writeErr) throw new Error(`receipt_path write failed: ${writeErr.message}`);
-  return path;
 }
 
 Deno.serve(async req => {
@@ -306,18 +79,25 @@ Deno.serve(async req => {
   };
   const company = task.companies;
 
+  const storePdf = async (accessToken: string, doc: IssuedDocument): Promise<string> => {
+    const path = await exportPdfToBucket(admin, accessToken, "receipts", doc, "receipts", company.id);
+    const { error } = await admin.from("payment_records").update({ receipt_path: path }).eq("id", record.id);
+    if (error) throw new Error(`receipt_path write failed: ${error.message}`);
+    return path;
+  };
+
   // Idempotency, layer 1: a receipt already exists for this record →
   // never create a second one. If its PDF also landed, this is a pure
-  // read; if the earlier export failed (the "orphan" case the brief
-  // warns about), heal it by re-exporting — export-pdf creates nothing
-  // on the FlowAccount side, so this stays safe to repeat.
+  // read; if the earlier export failed (the "orphan" case), heal it by
+  // re-exporting — export-pdf creates nothing on the FlowAccount side,
+  // so this stays safe to repeat.
   if (record.flowaccount_document_id) {
     const doc: IssuedDocument = { documentId: record.flowaccount_document_id, documentNumber: record.flowaccount_document_number ?? record.flowaccount_document_id };
     let receiptPath = record.receipt_path;
     if (!receiptPath) {
       try {
         const accessToken = await getAccessToken(admin);
-        receiptPath = await storePdf(admin, accessToken, doc, company.id, record.id);
+        receiptPath = await storePdf(accessToken, doc);
       } catch (err) {
         console.error("flowaccount-issue-receipt: PDF heal failed", err);
         return json({ error: `ใบเสร็จ ${doc.documentNumber} ออกแล้ว แต่ดึง PDF ไม่สำเร็จ ลองใหม่อีกครั้ง`, document_number: doc.documentNumber }, 502);
@@ -349,7 +129,15 @@ Deno.serve(async req => {
   try {
     const accessToken = await getAccessToken(admin);
     const contactId = await ensureContact(admin, accessToken, { ...company, tax_id: company.tax_id! });
-    const doc = await createReceipt(accessToken, { recordId: record.id, contactId, company: { ...company }, productName, amountGross, whtRate, whtAmount });
+    const doc = await createDocument(accessToken, "receipts", {
+      mockKey: record.id,
+      contactId,
+      company,
+      lines: [{ productName, amount: amountGross }],
+      amountGross,
+      whtRate,
+      whtAmount,
+    });
 
     // Persist the document BEFORE attempting the PDF. If the export (or
     // anything after it) fails and this hadn't been written, the receipt
@@ -384,7 +172,7 @@ Deno.serve(async req => {
 
     let receiptPath: string | null = null;
     try {
-      receiptPath = await storePdf(admin, accessToken, doc, company.id, record.id);
+      receiptPath = await storePdf(accessToken, doc);
     } catch (pdfErr) {
       // Document is already saved above — surfacing the PDF failure is
       // safe, and the next click takes the heal path instead of
