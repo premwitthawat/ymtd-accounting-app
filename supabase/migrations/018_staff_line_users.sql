@@ -1,0 +1,19 @@
+-- Security fix for the LINE "clear" command, independent of the
+-- FlowAccount work (and worth applying before it): the command runs off
+-- a plain text message in a *client-facing* group chat, so the client
+-- can type it too. Today that only flips a payment status in the app —
+-- annoying, recoverable. But the receipt integration makes 'paid' the
+-- doorstep of issuing a real tax document, and "anyone in the group can
+-- march a record toward that doorstep" is not a foundation to build on.
+--
+-- The fix is identity, not secrecy: LINE events carry the sender's
+-- userId, so line-webhook can now check it against this column and only
+-- honor "clear" from someone who is actually staff. Unique because a
+-- LINE account is one person — two profiles claiming the same userId
+-- would mean the check can't tell them apart.
+--
+-- No policies change: profiles stays fully locked to client roles
+-- (003_profiles.sql), and line-webhook reads it via service_role. The
+-- column is set by hand for now (SQL editor / a future admin UI); staff
+-- find their own userId from the webhook's event logs.
+alter table profiles add column line_user_id text unique;

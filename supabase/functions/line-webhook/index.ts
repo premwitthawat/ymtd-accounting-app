@@ -175,6 +175,29 @@ async function handleSlipImage(groupId: string, messageId: string, accessToken: 
   console.log(`line-webhook: payment_records ${record.id} -> pending_review, slip=${fileName}`);
 }
 
+// "clear" arrives in a *client-facing* group chat, so the client can
+// type it just as easily as staff — and once payment status feeds the
+// FlowAccount receipt flow, honoring it blindly would let a client
+// steer records toward tax-document issuance. LINE events carry the
+// sender's userId; only accept the command when it maps to a staff
+// profile (018_staff_line_users.sql).
+//
+// TRANSITION STATE: while no profile has a line_user_id linked yet, the
+// check fails open (any sender accepted, exactly the old behavior) —
+// otherwise merging this would instantly break the "clear" workflow the
+// office uses today. Once even one staff userId is linked, enforcement
+// turns on for everyone. Link them promptly.
+async function isStaffLineUser(userId: string | undefined): Promise<boolean> {
+  const { data: linked, error: linkedErr } = await supabase
+    .from("profiles")
+    .select("id, line_user_id, active")
+    .not("line_user_id", "is", null);
+  if (linkedErr) throw new Error(`profiles lookup failed: ${linkedErr.message}`);
+  if (!linked || linked.length === 0) return true; // fail open — see TRANSITION STATE above
+  if (!userId) return false;
+  return linked.some(p => p.line_user_id === userId && p.active);
+}
+
 // Closes out the company's oldest awaiting-payment record as 'paid'
 // with no slip involved — staff typed "clear" because they already
 // know it's settled (told in the chat, or reviewed a slip that isn't
@@ -278,7 +301,17 @@ Deno.serve(async req => {
         event.source?.type === "group" &&
         event.source.groupId
       ) {
-        await handleClearCommand(event.source.groupId);
+        if (await isStaffLineUser(event.source.userId)) {
+          await handleClearCommand(event.source.groupId);
+        } else {
+          // Silent by design: the bot never posts in client-facing
+          // groups (011_line_groups.sql), and replying "permission
+          // denied" would both break that rule and advertise the
+          // command's existence to the client who just tried it.
+          console.warn(
+            `line-webhook: ignoring "clear" from non-staff userId=${event.source.userId ?? "(none)"} in groupId=${event.source.groupId}`
+          );
+        }
       }
     } catch (err) {
       console.error("line-webhook: error handling event", event, err);
