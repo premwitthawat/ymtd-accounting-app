@@ -1,6 +1,7 @@
 import { ChevronDown, Pencil } from "lucide-react";
 import TaskRow from "./TaskRow";
 import CompanyPaymentRecords from "./CompanyPaymentRecords";
+import CompanyInvoices from "./CompanyInvoices";
 
 export default function CompanyCard({
   c,
@@ -75,6 +76,7 @@ export default function CompanyCard({
               ))}
           </div>
           <CompanyPaymentRecords companyId={c.id} canApprove={canApprovePayments} onError={onPaymentError} />
+          <CompanyInvoices companyId={c.id} monthlyFee={c.monthlyFee} canApprove={canApprovePayments} onError={onPaymentError} />
         </>
       )}
     </div>

@@ -18,6 +18,8 @@ export default function EditCompanyModal({ open, onClose, company, onSave, onAdd
       otherEnabled: customServices.length > 0,
       otherText: customServices.map(cs => cs.type).join(", "),
       otherDueDay: customServices[0] ? customServices[0].customDueDay : 20,
+      monthlyFee: company.monthlyFee ?? "",
+      clientWithholds: (company.whtRate ?? 0) > 0,
     };
   }, [company, taskTypes]);
 

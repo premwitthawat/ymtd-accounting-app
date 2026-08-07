@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { X, Receipt, ImageIcon, Send, FileText } from "lucide-react";
 import { supabase } from "../lib/supabaseClient";
+import { invokeFunction } from "../lib/functions";
 
 const STATUS_STYLES = {
   unpaid: { label: "รอชำระ", className: "bg-slate-100 text-slate-600" },
@@ -18,22 +19,7 @@ const formatBaht = amount =>
 
 const round2 = n => Math.round(n * 100) / 100;
 
-// The edge function packs its human-readable reason into the JSON body,
-// which supabase-js wraps behind error.context — without unwrapping,
-// every failure toasts as an unhelpful "Edge Function returned a
-// non-2xx status code".
-async function invokeIssueReceipt(body) {
-  const { data, error } = await supabase.functions.invoke("flowaccount-issue-receipt", { body });
-  if (!error) return { data };
-  let message = error.message;
-  try {
-    const parsed = await error.context.json();
-    if (parsed?.error) message = parsed.error;
-  } catch {
-    // non-JSON error body — keep the generic message
-  }
-  return { error: message };
-}
+const invokeIssueReceipt = body => invokeFunction("flowaccount-issue-receipt", body);
 
 // Fetches its own data instead of flowing down from App.jsx's loadAll
 // like companies/tasks do — payment records only matter once a company

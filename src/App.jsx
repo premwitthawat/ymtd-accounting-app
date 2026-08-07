@@ -24,7 +24,15 @@ import EditCompanyModal from "./components/EditCompanyModal";
 import UnpaidList from "./components/UnpaidList";
 import Toast from "./components/Toast";
 
-const toCompany = c => ({ id: c.id, name: c.name, short: c.short, owner: c.owner, active: c.active !== false });
+const toCompany = c => ({
+  id: c.id,
+  name: c.name,
+  short: c.short,
+  owner: c.owner,
+  active: c.active !== false,
+  monthlyFee: c.monthly_fee,
+  whtRate: c.wht_rate ?? 0,
+});
 const toTask = t => ({
   key: t.key,
   companyId: t.company_id,
@@ -200,8 +208,12 @@ export default function App() {
     await loadAll();
   };
 
-  const addCompany = async ({ name, short, owner, services, customServices }) => {
-    const { data: company, error: companyError } = await supabase.from("companies").insert({ name, short, owner }).select().single();
+  const addCompany = async ({ name, short, owner, services, customServices, monthlyFee, whtRate }) => {
+    const { data: company, error: companyError } = await supabase
+      .from("companies")
+      .insert({ name, short, owner, monthly_fee: monthlyFee, wht_rate: whtRate })
+      .select()
+      .single();
     if (companyError) {
       console.error(companyError);
       notifyError("เพิ่มบริษัทไม่สำเร็จ กรุณาลองใหม่");
@@ -226,8 +238,11 @@ export default function App() {
     await loadAll();
   };
 
-  const updateCompany = async (company, { name, short, owner, services, customServices }) => {
-    const { error: companyError } = await supabase.from("companies").update({ name, short, owner }).eq("id", company.id);
+  const updateCompany = async (company, { name, short, owner, services, customServices, monthlyFee, whtRate }) => {
+    const { error: companyError } = await supabase
+      .from("companies")
+      .update({ name, short, owner, monthly_fee: monthlyFee, wht_rate: whtRate })
+      .eq("id", company.id);
     if (companyError) {
       console.error(companyError);
       notifyError("บันทึกข้อมูลบริษัทไม่สำเร็จ กรุณาลองใหม่");
