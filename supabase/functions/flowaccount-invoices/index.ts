@@ -139,7 +139,13 @@ async function issueInvoiceFor(admin: Admin, company: CompanyRow, period: string
       .single();
     if (error) throw new Error(`invoice fetch failed: ${error.message}`);
     invoice = existing as InvoiceRow;
-    if (invoice.flowaccount_document_id && invoice.invoice_path && invoice.line_pushed_at) {
+    // "Nothing left to do" must include the LINE leg being impossible
+    // right now (no group linked / no token), or a company that can't
+    // be pushed to would be reported as freshly invoiced on every
+    // re-run forever. When a group gets linked later, linePending turns
+    // true and the next run resumes just the push.
+    const linePending = !invoice.line_pushed_at && !!company.line_group_id && !!lineToken;
+    if (invoice.flowaccount_document_id && invoice.invoice_path && !linePending) {
       return { company: company.short, outcome: "skipped" as const };
     }
   }
