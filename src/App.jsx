@@ -519,18 +519,45 @@ export default function App() {
     [periodDueDays, taskTypes]
   );
 
+  // Who held each company in the month on screen. Task rows snapshot
+  // their owner per period (a permanent hand-off deliberately doesn't
+  // rewrite already-generated rows), so a month's rows are the durable
+  // record of that month's assignments — grouping by companies.owner
+  // instead let a hand-off made in August rewrite what July's view said
+  // ("เดือน ก.ค. ปูนาทำ 3 บริษัท ... พอกลับไปดูก็เป็น 7"). Majority across
+  // the company's rows, so a one-task stand-in doesn't move the whole
+  // company; a company with no rows this period (no services, or a month
+  // before it existed) falls back to its current owner.
+  const periodOwners = useMemo(() => {
+    const votes = {};
+    rawTasks.forEach(t => {
+      const v = (votes[t.companyId] = votes[t.companyId] || {});
+      v[t.owner] = (v[t.owner] || 0) + 1;
+    });
+    return Object.fromEntries(
+      companies.map(c => {
+        const v = votes[c.id];
+        const top = v && Object.entries(v).sort((a, b) => b[1] - a[1])[0][0];
+        return [c.id, top || c.owner];
+      })
+    );
+  }, [rawTasks, companies]);
+
+  // `owner` on each row stays the company's *current* default (the edit
+  // modal reads and writes it); `periodOwner` is what the month being
+  // viewed groups, filters, and displays by.
   const companyRows = useMemo(
     () =>
       companies
-        .filter(c => (showArchivedCompanies || c.active) && (person === "ทุกคน" || c.owner === person))
+        .filter(c => (showArchivedCompanies || c.active) && (person === "ทุกคน" || periodOwners[c.id] === person))
         .map(c => {
         const ct = tasks.filter(t => t.companyId === c.id);
         const services = companyServices.filter(cs => cs.companyId === c.id && cs.active);
         const done = ct.filter(t => t.status !== "pending").length;
         const over = ct.filter(t => t.status === "pending" && getUrgency(t.dueDate, todayDate) === "over").length;
-        return { ...c, ct, services, done, total: ct.length, over };
+        return { ...c, ct, services, done, total: ct.length, over, periodOwner: periodOwners[c.id] };
       }),
-    [companies, companyServices, tasks, person, todayDate, showArchivedCompanies]
+    [companies, companyServices, tasks, person, todayDate, showArchivedCompanies, periodOwners]
   );
 
   const companySearchMatch = useMemo(() => {
@@ -541,17 +568,20 @@ export default function App() {
   const companyGroups = useMemo(() => {
     const groups = {};
     companyRows.forEach(c => {
-      (groups[c.owner] = groups[c.owner] || []).push(c);
+      (groups[c.periodOwner] = groups[c.periodOwner] || []).push(c);
     });
     return Object.entries(groups).sort((a, b) => a[0].localeCompare(b[0], "th"));
   }, [companyRows]);
 
   // Team overview (owner/manager only) — always shows every staff member
   // regardless of the "person" filter, since the point is comparing them.
+  // Built on periodOwners so a past month compares the team as it was
+  // then; task owners are unioned in so a stand-in who held tasks but no
+  // whole company that month still gets a row.
   const teamRows = useMemo(() => {
-    const owners = [...new Set(companies.map(c => c.owner))];
+    const owners = [...new Set([...companies.map(c => periodOwners[c.id]), ...tasks.map(t => t.owner)])];
     return owners.map(owner => {
-      const ownerCompanies = companies.filter(c => c.owner === owner);
+      const ownerCompanies = companies.filter(c => periodOwners[c.id] === owner);
       const ownerTasks = tasks.filter(t => t.owner === owner);
       const taskPending = ownerTasks.filter(t => t.status === "pending");
       const done = ownerTasks.filter(t => t.status !== "pending").length;
@@ -560,7 +590,7 @@ export default function App() {
       taskPending.forEach(t => (pendingByType[t.type] = (pendingByType[t.type] || 0) + 1));
       return { owner, companies: ownerCompanies, pending: taskPending, pendingByType, done, total: ownerTasks.length, over };
     });
-  }, [companies, tasks, todayDate]);
+  }, [companies, tasks, todayDate, periodOwners]);
 
   if (authLoading) {
     return <div className="flex min-h-screen items-center justify-center bg-slate-50 text-sm text-slate-400">กำลังโหลด...</div>;

@@ -34,7 +34,7 @@ export default function CompanyCard({
               <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-500">ปิดให้บริการแล้ว</span>
             )}
             {c.over > 0 && <span className="font-bold text-rose-600">เลยกำหนด {c.over}</span>}
-            <span>{c.owner} · <span className="font-mono">{c.done}/{c.total}</span></span>
+            <span>{c.periodOwner || c.owner} · <span className="font-mono">{c.done}/{c.total}</span></span>
             {onEdit && (
               <button
                 onClick={e => {
