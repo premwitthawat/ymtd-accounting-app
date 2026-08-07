@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Plus, RotateCcw, UserX, UserCheck, X } from "lucide-react";
+import { Plus, RotateCcw, UserX, UserCheck, X, MessageCircle } from "lucide-react";
 import { supabase } from "../lib/supabaseClient";
 
 const ROLE_LABEL = { owner: "เจ้าของ", manager: "ผู้จัดการ", employee: "พนักงาน" };
@@ -17,6 +17,9 @@ export default function AdminUsersPanel({ open, onClose, profile }) {
 
   const [resetTarget, setResetTarget] = useState(null);
   const [resetPin, setResetPin] = useState("");
+
+  const [lineTarget, setLineTarget] = useState(null);
+  const [lineId, setLineId] = useState("");
 
   const call = async body => {
     const { data, error } = await supabase.functions.invoke("admin-users", { body });
@@ -70,6 +73,19 @@ export default function AdminUsersPanel({ open, onClose, profile }) {
     }
   };
 
+  const submitLineId = async e => {
+    e.preventDefault();
+    setError("");
+    try {
+      await call({ action: "set-line-id", id: lineTarget.id, line_user_id: lineId });
+      setLineTarget(null);
+      setLineId("");
+      await load();
+    } catch (e) {
+      setError(e.message);
+    }
+  };
+
   const toggleActive = async u => {
     setError("");
     try {
@@ -109,12 +125,28 @@ export default function AdminUsersPanel({ open, onClose, profile }) {
                   <div className="text-xs text-slate-400">
                     {ROLE_LABEL[u.role]}
                     {!u.active && " · ปิดใช้งาน"}
+                    {u.line_user_id && <span className="text-emerald-600"> · ผูก LINE แล้ว</span>}
                   </div>
                 </div>
                 {isManager && u.role === "owner" ? (
                   <span className="text-xs text-slate-400">ผู้จัดการแก้ไขไม่ได้</span>
                 ) : (
                   <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setLineTarget(u);
+                        setLineId(u.line_user_id || "");
+                        setError("");
+                      }}
+                      className={`rounded-md border p-1.5 hover:border-slate-300 ${
+                        u.line_user_id ? "border-emerald-200 text-emerald-600" : "border-slate-200 text-slate-500"
+                      }`}
+                      aria-label={`ผูกบัญชี LINE ของ ${u.label}`}
+                      title="ผูกบัญชี LINE (สำหรับคำสั่งในแชท)"
+                    >
+                      <MessageCircle size={14} />
+                    </button>
                     <button
                       type="button"
                       onClick={() => {
@@ -140,6 +172,33 @@ export default function AdminUsersPanel({ open, onClose, profile }) {
               </div>
             ))}
           </div>
+
+          {lineTarget && (
+            <form onSubmit={submitLineId} className="mb-4 flex flex-col gap-2 rounded-lg border border-dashed border-slate-300 p-3 text-sm">
+              <div className="font-semibold text-slate-700">ผูกบัญชี LINE ของ {lineTarget.label}</div>
+              <p className="text-xs text-slate-500">
+                ให้ {lineTarget.label} เพิ่มบอท "Ymtd Accounting" เป็นเพื่อน แล้วพิมพ์ <b>myid</b> ในแชทส่วนตัวกับบอท
+                (ไม่ใช่ในกลุ่มลูกค้า) บอทจะตอบรหัสขึ้นต้นด้วย U กลับมา — copy มาวางที่นี่
+                ผูกแล้วคนนั้นจะใช้คำสั่ง <b>paid</b> ในกลุ่มลูกค้าเพื่อรับชำระใบแจ้งหนี้ + ส่งใบเสร็จอัตโนมัติได้
+              </p>
+              <input
+                value={lineId}
+                onChange={e => setLineId(e.target.value.trim())}
+                placeholder="เช่น U4af4980629... (เว้นว่าง = เลิกผูก)"
+                autoCapitalize="off"
+                autoCorrect="off"
+                className="rounded-lg border border-slate-200 px-3 py-2 font-mono text-xs focus:border-brand-navy focus:ring-1 focus:ring-brand-navy focus:outline-none"
+              />
+              <div className="flex justify-end gap-2">
+                <button type="button" onClick={() => setLineTarget(null)} className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600">
+                  ยกเลิก
+                </button>
+                <button type="submit" className="rounded-lg bg-brand-navy px-3 py-1.5 text-xs font-semibold text-white">
+                  บันทึก
+                </button>
+              </div>
+            </form>
+          )}
 
           {resetTarget && (
             <form onSubmit={submitResetPin} className="mb-4 flex flex-col gap-2 rounded-lg border border-dashed border-slate-300 p-3 text-sm">
