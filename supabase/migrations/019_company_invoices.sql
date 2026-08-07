@@ -47,6 +47,12 @@ create table company_invoices (
   receipt_document_number text,
   receipt_path text,
   receipt_issued_at timestamptz,
+  -- Marks the one-shot "receipt delivered into the LINE group" push
+  -- (mark-paid sends it whether triggered from the app or the "paid"
+  -- chat command) — same role line_pushed_at plays for the invoice
+  -- itself: null means it hasn't landed, so a retry knows to send, and
+  -- a repeat mark-paid knows NOT to send twice.
+  receipt_line_pushed_at timestamptz,
   created_at timestamptz not null default now(),
   -- One invoice per company per month. Doubles as the generator's
   -- idempotency anchor: a re-run (cron retry, manual workflow_dispatch)

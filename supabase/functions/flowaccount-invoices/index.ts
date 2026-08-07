@@ -259,7 +259,7 @@ async function handleGenerate(admin: Admin, period: string) {
 async function handleMarkPaid(admin: Admin, invoiceId: string) {
   const { data: invoice, error: invoiceErr } = await admin
     .from("company_invoices")
-    .select("*, companies(id, name, short, tax_id, address, branch_code, flowaccount_contact_id)")
+    .select("*, companies(id, name, short, tax_id, address, branch_code, flowaccount_contact_id, line_group_id)")
     .eq("id", invoiceId)
     .maybeSingle();
   if (invoiceErr) return json({ error: invoiceErr.message }, 400);
@@ -274,6 +274,7 @@ async function handleMarkPaid(admin: Admin, invoiceId: string) {
     address: string | null;
     branch_code: string | null;
     flowaccount_contact_id: string | null;
+    line_group_id: string | null;
   };
 
   // CAS so two staff clicking together only record one payment moment;
@@ -294,6 +295,38 @@ async function handleMarkPaid(admin: Admin, invoiceId: string) {
     return path;
   };
 
+  // Delivers the receipt into the client's LINE group, once — same
+  // whether mark-paid came from the app button or the "paid" chat
+  // command, so the client's experience doesn't depend on which door
+  // staff used. Push failure is non-fatal (the receipt exists either
+  // way); receipt_line_pushed_at stays null so the next mark-paid call
+  // retries just this step.
+  const pushReceiptToLine = async (doc: IssuedDocument, receiptPath: string) => {
+    if (invoice.receipt_line_pushed_at) return;
+    const lineToken = Deno.env.get("LINE_CHANNEL_ACCESS_TOKEN");
+    if (!company.line_group_id || !lineToken) {
+      console.warn(`flowaccount-invoices: receipt ${doc.documentNumber} not pushed (no ${company.line_group_id ? "LINE token" : "line_group_id"})`);
+      return;
+    }
+    try {
+      const { data: signed, error: signErr } = await admin.storage.from("receipts").createSignedUrl(receiptPath, 2_592_000);
+      if (signErr || !signed) throw new Error(`receipt signed URL failed: ${signErr?.message}`);
+      const text = [
+        "[ใบเสร็จรับเงิน]",
+        company.short,
+        `เลขที่ ${doc.documentNumber}`,
+        `ค่าบริการประจำเดือน ${periodThaiLabel(invoice.period)}`,
+        `ดาวน์โหลด: ${signed.signedUrl}`,
+        "ขอบคุณที่ใช้บริการครับ",
+      ].join("\n");
+      await pushLineMessage(company.line_group_id, text, lineToken);
+      const { error } = await admin.from("company_invoices").update({ receipt_line_pushed_at: new Date().toISOString() }).eq("id", invoice.id);
+      if (error) throw new Error(`receipt_line_pushed_at write failed: ${error.message}`);
+    } catch (err) {
+      console.error("flowaccount-invoices: receipt LINE push failed", err);
+    }
+  };
+
   try {
     const accessToken = await getAccessToken(admin);
 
@@ -303,6 +336,7 @@ async function handleMarkPaid(admin: Admin, invoiceId: string) {
     if (invoice.receipt_document_id) {
       const doc: IssuedDocument = { documentId: invoice.receipt_document_id, documentNumber: invoice.receipt_document_number ?? invoice.receipt_document_id };
       const receiptPath = invoice.receipt_path ?? (await storeReceiptPdf(accessToken, doc));
+      await pushReceiptToLine(doc, receiptPath);
       return json({ already_paid: true, receipt_document_number: doc.documentNumber, receipt_path: receiptPath });
     }
 
@@ -341,6 +375,8 @@ async function handleMarkPaid(admin: Admin, invoiceId: string) {
         502
       );
     }
+
+    await pushReceiptToLine(doc, receiptPath);
 
     return json({ receipt_document_number: doc.documentNumber, receipt_path: receiptPath, mock: MOCK || undefined });
   } catch (err) {
