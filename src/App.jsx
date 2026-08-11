@@ -236,16 +236,32 @@ export default function App() {
 
     // Keep the denormalized company name in sync on every existing task row
     // (covers a plain rename) — applies across all periods, not just the
-    // current one. `owner` here is only the company's *default* responsible
-    // person used when generating future periods; it deliberately does NOT
-    // get pushed onto existing task rows, so a permanent hand-off doesn't
-    // rewrite who was actually responsible for past/already-generated
-    // periods. To reassign the *current* period's task, use the per-task
-    // owner control on that task row instead (see setTaskOwner below).
+    // current one.
     const { error: syncError } = await supabase.from("tasks").update({ company: short }).eq("company_id", company.id);
     if (syncError) {
       console.error(syncError);
       notifyError("อัปเดตชื่อบริษัทในงานเดิมไม่สำเร็จ");
+    }
+
+    // A permanent hand-off takes effect NOW for work not yet done: the
+    // rest of this month's pending tasks move to the new person, or
+    // they'd sit invisible in the old owner's queue while the card
+    // already shows the new name (periodOwners uses companies.owner for
+    // the current month). Done/skipped rows keep whoever actually did
+    // them — this month's history stays honest, and past months aren't
+    // touched at all. A temporary stand-in is still the per-task pencil
+    // (setTaskOwner), not this.
+    if (owner !== company.owner) {
+      const { error: ownerSyncError } = await supabase
+        .from("tasks")
+        .update({ owner })
+        .eq("company_id", company.id)
+        .eq("period", currentPeriod)
+        .eq("status", "pending");
+      if (ownerSyncError) {
+        console.error(ownerSyncError);
+        notifyError("ย้ายงานค้างของเดือนนี้ให้ผู้รับผิดชอบใหม่ไม่สำเร็จ");
+      }
     }
 
     const newTypes = [...services, ...customServices.map(cs => cs.type)];
@@ -519,16 +535,26 @@ export default function App() {
     [periodDueDays, taskTypes]
   );
 
-  // Who held each company in the month on screen. Task rows snapshot
-  // their owner per period (a permanent hand-off deliberately doesn't
-  // rewrite already-generated rows), so a month's rows are the durable
-  // record of that month's assignments — grouping by companies.owner
-  // instead let a hand-off made in August rewrite what July's view said
-  // ("เดือน ก.ค. ปูนาทำ 3 บริษัท ... พอกลับไปดูก็เป็น 7"). Majority across
-  // the company's rows, so a one-task stand-in doesn't move the whole
-  // company; a company with no rows this period (no services, or a month
-  // before it existed) falls back to its current owner.
+  // Who held each company in the month on screen.
+  //
+  // The current month follows the live assignment (companies.owner): a
+  // hand-off saved in the edit dialog must show up the moment it's saved
+  // — staff read "still shows my name" as the save having failed
+  // ("หนูปรับเป็นปูนาแล้ว แต่มันยังเป็นชื่อหนูอยู่ค่ะ"). updateCompany
+  // moves the month's still-pending task rows along with it, and a
+  // pencil stand-in on individual tasks deliberately does NOT move the
+  // company here — a temporary cover isn't a change of ownership.
+  //
+  // Past months instead take a majority vote over their frozen task
+  // rows: those recorded who actually held the work, so a hand-off made
+  // in August can never rewrite what July's view says ("เดือน ก.ค.
+  // ปูนาทำ 3 บริษัท ... พอกลับไปดูก็เป็น 7"). A company with no rows in
+  // that period (no services, or a month before it existed) falls back
+  // to its current owner.
   const periodOwners = useMemo(() => {
+    if (isCurrentPeriod) {
+      return Object.fromEntries(companies.map(c => [c.id, c.owner]));
+    }
     const votes = {};
     rawTasks.forEach(t => {
       const v = (votes[t.companyId] = votes[t.companyId] || {});
@@ -541,7 +567,7 @@ export default function App() {
         return [c.id, top || c.owner];
       })
     );
-  }, [rawTasks, companies]);
+  }, [rawTasks, companies, isCurrentPeriod]);
 
   // `owner` on each row stays the company's *current* default (the edit
   // modal reads and writes it); `periodOwner` is what the month being
