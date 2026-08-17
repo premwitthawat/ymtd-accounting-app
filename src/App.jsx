@@ -763,6 +763,8 @@ export default function App() {
                       onSetOwner={canReassign ? setTaskOwner : undefined}
                       canApprovePayments={!isEmployee}
                       onPaymentError={notifyError}
+                      period={selectedPeriod}
+                      isCurrentPeriod={isCurrentPeriod}
                     />
                   ))
                 )
@@ -786,6 +788,8 @@ export default function App() {
                       onSetOwner={canReassign ? setTaskOwner : undefined}
                       canApprovePayments={!isEmployee}
                       onPaymentError={notifyError}
+                      period={selectedPeriod}
+                      isCurrentPeriod={isCurrentPeriod}
                     />
                   ))
               ) : (
@@ -805,6 +809,8 @@ export default function App() {
                       onSetOwner={canReassign ? setTaskOwner : undefined}
                       canApprovePayments={!isEmployee}
                       onPaymentError={notifyError}
+                      period={selectedPeriod}
+                      isCurrentPeriod={isCurrentPeriod}
                     />
                   ))
               )}

@@ -15,6 +15,10 @@ export default function TaskRow({ t, todayDate, onToggle, onSkip, onRestore, onS
   const u = URGENCY_STYLES[urgency];
   const type = useTaskTypeStyle(t.type);
   const paid = t.paymentStatus === "paid";
+  // Set when staff hit "เอาออก" on the filing's payment record — nothing
+  // to collect. Clicking cycles it back to "รอลูกค้าชำระ" so a mistaken
+  // removal is recoverable without touching the database.
+  const noCollect = t.paymentStatus === "not_applicable";
 
   return (
     <div
@@ -124,12 +128,12 @@ export default function TaskRow({ t, todayDate, onToggle, onSkip, onRestore, onS
 
         {done && (
           <button
-            onClick={() => onSetPaymentStatus(t.key, paid ? "unpaid" : "paid")}
+            onClick={() => onSetPaymentStatus(t.key, paid || noCollect ? "unpaid" : "paid")}
             className={`mt-1 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold ${
-              paid ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"
+              paid ? "bg-emerald-100 text-emerald-700" : noCollect ? "bg-slate-100 text-slate-500" : "bg-amber-100 text-amber-700"
             }`}
           >
-            {paid ? "ลูกค้าชำระแล้ว ✓" : "รอลูกค้าชำระ"}
+            {paid ? "ลูกค้าชำระแล้ว ✓" : noCollect ? "ไม่เก็บเงินรายการนี้" : "รอลูกค้าชำระ"}
           </button>
         )}
       </div>

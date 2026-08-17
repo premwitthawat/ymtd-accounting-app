@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { X, Receipt, ImageIcon, Send } from "lucide-react";
+import { X, Receipt, ImageIcon, Send, Trash2 } from "lucide-react";
 import { supabase } from "../lib/supabaseClient";
 
 const STATUS_STYLES = {
@@ -22,7 +22,7 @@ const formatBaht = amount =>
 // pipeline would mean every view pays for a table almost none of them
 // render. Scoped so the line-webhook Edge Function attaching a slip (or
 // staff approving one on another device) shows up here live.
-export default function CompanyPaymentRecords({ companyId, canApprove, onError }) {
+export default function CompanyPaymentRecords({ companyId, canApprove, onError, period, isCurrentPeriod }) {
   const [records, setRecords] = useState([]);
   const [unnotifiedTasks, setUnnotifiedTasks] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -35,14 +35,14 @@ export default function CompanyPaymentRecords({ companyId, canApprove, onError }
       const [{ data: recordsData, error: recordsErr }, { data: tasksData, error: tasksErr }] = await Promise.all([
         supabase
           .from("payment_records")
-          .select("id, task_id, amount, status, slip_path, notice_sent_at, created_at, tasks!inner(type, due_date, company_id)")
+          .select("id, task_id, amount, status, slip_path, notice_sent_at, created_at, tasks!inner(type, due_date, company_id, period)")
           .eq("tasks.company_id", companyId)
           .order("created_at", { ascending: false }),
         // A filing only has an amount to chase once staff have actually
         // finished it — draws from `tasks` (not payment_records) because
         // a payment_records row doesn't exist yet until the notice is
         // sent for the first time.
-        supabase.from("tasks").select("id, type, due_date").eq("company_id", companyId).eq("payment_status", "unpaid").eq("status", "done"),
+        supabase.from("tasks").select("id, type, due_date, period").eq("company_id", companyId).eq("payment_status", "unpaid").eq("status", "done"),
       ]);
       if (cancelled) return;
       if (recordsErr) onError?.(recordsErr.message);
@@ -114,6 +114,30 @@ export default function CompanyPaymentRecords({ companyId, canApprove, onError }
     setReviewing(null);
   };
 
+  // "เอาออก" — this filing turned out to have nothing left to collect
+  // (a one-off from a past month, or a notice armed by mistake).
+  // Deleting the record is what stops both the display and the daily
+  // LINE chase; the task is flipped to not_applicable so the
+  // done+unpaid query above doesn't immediately resurrect it as a
+  // "ส่งแจ้งชำระแล้ว" prompt. Reversible: the task's payment chip
+  // (TaskRow) can cycle it back to "รอลูกค้าชำระ".
+  const removeRecord = async record => {
+    if (!window.confirm(`เอารายการ "${record.tasks.type}" ออกจากการชำระเงิน?\nระบบจะหยุดแจ้งเตือน/ทวงรายการนี้ใน LINE ด้วย`)) return;
+    setBusyId(record.id);
+    // .select() so a delete the database silently ignored (RLS policy
+    // missing — migration 020 not applied yet) surfaces as an error
+    // instead of looking like success while the row lives on.
+    const { data, error } = await supabase.from("payment_records").delete().eq("id", record.id).select("id");
+    if (error || !data?.length) {
+      onError?.(error?.message ?? "ลบไม่สำเร็จ — ฐานข้อมูลยังไม่เปิดสิทธิ์ลบ (ต้องรัน migration 020 ก่อน)");
+      setBusyId(null);
+      return;
+    }
+    const { error: taskErr } = await supabase.from("tasks").update({ payment_status: "not_applicable" }).eq("id", record.task_id);
+    if (taskErr) onError?.(taskErr.message);
+    setBusyId(null);
+  };
+
   // Recovery for a false match — line-webhook only attaches images to
   // records staff have already marked "ส่งแจ้งชำระแล้ว" for, but someone
   // in the group can still post an unrelated photo while that's
@@ -131,7 +155,21 @@ export default function CompanyPaymentRecords({ companyId, canApprove, onError }
   };
 
   if (loading) return <div className="px-4 py-3 text-xs text-slate-400">กำลังโหลดรายการชำระเงิน...</div>;
-  if (records.length === 0 && (!canApprove || unnotifiedTasks.length === 0)) return null;
+
+  // The queries above deliberately span all months (an unpaid balance
+  // must survive the month rollover so the chase and slip-matching keep
+  // working) — but the *display* is scoped: the month being viewed shows
+  // its own records in full, and only the current-month view also
+  // surfaces older still-uncollected ones (badged "ค้างจากเดือนก่อน").
+  // Past-month views are locked history, same as the task list — old
+  // *paid* records no longer pile up in the current view forever.
+  const visibleRecords = records.filter(r => r.tasks.period === period || (isCurrentPeriod && r.status !== "paid"));
+  const visibleUnnotified = unnotifiedTasks.filter(t => t.period === period || isCurrentPeriod);
+  if (visibleRecords.length === 0 && (!canApprove || visibleUnnotified.length === 0)) return null;
+
+  const carriedOverBadge = (
+    <span className="rounded-full bg-amber-100 px-2 py-0.5 font-semibold text-amber-700">ค้างจากเดือนก่อน</span>
+  );
 
   return (
     <div className="border-t border-slate-100 bg-slate-50/60 px-4 py-3">
@@ -140,10 +178,11 @@ export default function CompanyPaymentRecords({ companyId, canApprove, onError }
       </div>
       <div className="flex flex-col gap-1.5">
         {canApprove &&
-          unnotifiedTasks.map(task => (
+          visibleUnnotified.map(task => (
             <div key={task.id} className="flex flex-wrap items-center gap-2 rounded-lg border border-dashed border-slate-300 px-3 py-2 text-xs">
               <span className="font-semibold text-slate-800">{task.type}</span>
               <span className="text-slate-400">ครบกำหนด {formatThaiDate(task.due_date)}</span>
+              {task.period !== period && carriedOverBadge}
               <button
                 onClick={() => markNoticeSent(task)}
                 disabled={busyId === task.id}
@@ -154,7 +193,7 @@ export default function CompanyPaymentRecords({ companyId, canApprove, onError }
             </div>
           ))}
 
-        {records.map(record => {
+        {visibleRecords.map(record => {
           const status = STATUS_STYLES[record.status] ?? STATUS_STYLES.unpaid;
           return (
             <div key={record.id} className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs">
@@ -164,6 +203,7 @@ export default function CompanyPaymentRecords({ companyId, canApprove, onError }
               {record.notice_sent_at && (
                 <span className="text-slate-400">แจ้งลูกค้าแล้ว {formatThaiDate(record.notice_sent_at.slice(0, 10))}</span>
               )}
+              {record.tasks.period !== period && carriedOverBadge}
               <span className={`ml-auto rounded-full px-2 py-0.5 font-semibold ${status.className}`}>{status.label}</span>
 
               {(record.slip_path || (canApprove && record.status !== "paid")) && (
@@ -177,6 +217,18 @@ export default function CompanyPaymentRecords({ companyId, canApprove, onError }
                       ? "ตรวจสอบสลิป"
                       : "ดูสลิป"
                     : "บันทึกว่าชำระแล้ว"}
+                </button>
+              )}
+
+              {canApprove && record.status === "unpaid" && (
+                <button
+                  onClick={() => removeRecord(record)}
+                  disabled={busyId === record.id}
+                  aria-label={`เอารายการ ${record.tasks.type} ออก`}
+                  title="เอาออก — ไม่มีอะไรต้องเก็บเงินแล้ว หยุดแสดง/หยุดทวงรายการนี้"
+                  className="flex items-center gap-1 rounded-md border border-rose-200 px-2 py-1 font-semibold text-rose-600 hover:bg-rose-50 disabled:opacity-50"
+                >
+                  <Trash2 size={12} /> {busyId === record.id ? "กำลังลบ..." : "เอาออก"}
                 </button>
               )}
             </div>
