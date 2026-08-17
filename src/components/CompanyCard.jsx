@@ -17,6 +17,8 @@ export default function CompanyCard({
   onSetOwner,
   canApprovePayments,
   onPaymentError,
+  period,
+  isCurrentPeriod,
 }) {
   const pct = Math.round((c.done / c.total) * 100);
   const barColor = pct === 100 ? "bg-emerald-600" : c.over ? "bg-rose-600" : "bg-brand-navy";
@@ -75,7 +77,7 @@ export default function CompanyCard({
                 />
               ))}
           </div>
-          <CompanyPaymentRecords companyId={c.id} canApprove={canApprovePayments} onError={onPaymentError} />
+          <CompanyPaymentRecords companyId={c.id} canApprove={canApprovePayments} onError={onPaymentError} period={period} isCurrentPeriod={isCurrentPeriod} />
           <CompanyInvoices companyId={c.id} monthlyFee={c.monthlyFee} canApprove={canApprovePayments} onError={onPaymentError} />
         </>
       )}
