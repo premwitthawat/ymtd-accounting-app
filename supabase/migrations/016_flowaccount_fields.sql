@@ -42,6 +42,16 @@ alter table payment_records add column amount_gross numeric;
 alter table payment_records add column wht_rate numeric default 0;
 alter table payment_records add column wht_amount numeric;
 alter table payment_records add column amount_received numeric;
+-- A receipt has to be an upgrade of an existing invoice - FlowAccount
+-- retired standalone receipt creation ("Create Receipt API is
+-- obsoleted, please follow the Upgrade Receipt procedure"). So issuing
+-- a receipt for a filing means issuing its invoice first, and that
+-- invoice has to be remembered: if the receipt leg fails, the retry
+-- must reuse the invoice already sitting in FlowAccount rather than
+-- stack up a second one.
+alter table payment_records add column flowaccount_invoice_id text;
+alter table payment_records add column flowaccount_invoice_number text;
+
 alter table payment_records add column flowaccount_document_id text;
 alter table payment_records add column flowaccount_document_number text;
 -- Object path in the `receipts` bucket, NOT a URL — same rule as

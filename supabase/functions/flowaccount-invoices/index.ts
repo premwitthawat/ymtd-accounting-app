@@ -51,6 +51,15 @@ const periodThaiLabel = (period: string) => {
   return new Intl.DateTimeFormat("th-TH-u-ca-buddhist", { month: "long", year: "numeric" }).format(new Date(y, m - 1, 1));
 };
 
+// Payment terms for the monthly fee: issued on the 1st, due by the end
+// of the month being billed. Day 0 of the *next* month is the last day
+// of this one, which also keeps February and 30-day months honest.
+const lastDayOfPeriod = (period: string) => {
+  const [y, m] = period.split("-").map(Number);
+  const last = new Date(Date.UTC(y, m, 0));
+  return last.toISOString().slice(0, 10);
+};
+
 const formatBaht = (n: number) => new Intl.NumberFormat("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
 
 async function pushLineMessage(groupId: string, text: string, accessToken: string) {
@@ -158,7 +167,7 @@ async function issueInvoiceFor(admin: Admin, company: CompanyRow, period: string
   } else {
     const contactId = await ensureContact(admin, accessToken, { ...company, tax_id: company.tax_id! });
     const { data: extras } = await admin.from("invoice_extras").select("description, amount").eq("company_id", company.id).eq("period", period);
-    doc = await createDocument(accessToken, "billing-notes", {
+    doc = await createDocument(accessToken, "invoice", {
       mockKey: invoice.id,
       contactId,
       company,
@@ -169,6 +178,9 @@ async function issueInvoiceFor(admin: Admin, company: CompanyRow, period: string
       amountGross: invoice.amount_gross,
       whtRate: invoice.wht_rate,
       whtAmount: invoice.wht_amount,
+      issuedOn: `${period}-01`,
+      dueDate: lastDayOfPeriod(period),
+      remarks: `ค่าบริการประจำเดือน ${periodThaiLabel(period)}`,
     });
 
     const { data: updated, error: saveErr } = await admin
@@ -188,7 +200,7 @@ async function issueInvoiceFor(admin: Admin, company: CompanyRow, period: string
 
   let invoicePath = invoice.invoice_path;
   if (!invoicePath) {
-    invoicePath = await exportPdfToBucket(admin, accessToken, "billing-notes", doc, "invoices", company.id);
+    invoicePath = await exportPdfToBucket(admin, accessToken, "invoice", doc, "invoices", company.id);
     const { error } = await admin.from("company_invoices").update({ invoice_path: invoicePath }).eq("id", invoice.id);
     if (error) throw new Error(`invoice_path write failed: ${error.message}`);
   }
@@ -289,7 +301,7 @@ async function handleMarkPaid(admin: Admin, invoiceId: string) {
   }
 
   const storeReceiptPdf = async (accessToken: string, doc: IssuedDocument): Promise<string> => {
-    const path = await exportPdfToBucket(admin, accessToken, "receipts", doc, "receipts", company.id);
+    const path = await exportPdfToBucket(admin, accessToken, "receipt", doc, "receipts", company.id);
     const { error } = await admin.from("company_invoices").update({ receipt_path: path }).eq("id", invoice.id);
     if (error) throw new Error(`receipt_path write failed: ${error.message}`);
     return path;
@@ -340,15 +352,25 @@ async function handleMarkPaid(admin: Admin, invoiceId: string) {
       return json({ already_paid: true, receipt_document_number: doc.documentNumber, receipt_path: receiptPath });
     }
 
+    // The receipt is an upgrade of this month's invoice, so that
+    // invoice must exist first. It normally does (generate runs on the
+    // 1st), but a company whose generation failed would otherwise fail
+    // deep inside FlowAccount with an opaque error.
+    if (!invoice.flowaccount_document_id || !invoice.flowaccount_document_number) {
+      return json({ error: "ยังไม่มีใบแจ้งหนี้ของเดือนนี้ในระบบ FlowAccount — ออกใบแจ้งหนี้ก่อนจึงจะออกใบเสร็จได้" }, 409);
+    }
+
     const contactId = await ensureContact(admin, accessToken, { ...company, tax_id: company.tax_id! });
-    const doc = await createDocument(accessToken, "receipts", {
+    const doc = await createDocument(accessToken, "receipt", {
       mockKey: `inv-${invoice.id}`,
       contactId,
       company,
-      lines: [{ productName: `ค่าบริการทำบัญชีประจำเดือน ${periodThaiLabel(invoice.period)} (ตามใบแจ้งหนี้ ${invoice.flowaccount_document_number})`, amount: invoice.amount_gross }],
+      lines: [{ productName: `ค่าบริการทำบัญชีประจำเดือน ${periodThaiLabel(invoice.period)}`, amount: invoice.amount_gross }],
       amountGross: invoice.amount_gross,
       whtRate: invoice.wht_rate,
       whtAmount: invoice.wht_amount,
+      remarks: `รับชำระตามใบแจ้งหนี้ ${invoice.flowaccount_document_number}`,
+      reference: { documentId: invoice.flowaccount_document_id, documentNumber: invoice.flowaccount_document_number },
     });
 
     const { data: updated, error: saveErr } = await admin

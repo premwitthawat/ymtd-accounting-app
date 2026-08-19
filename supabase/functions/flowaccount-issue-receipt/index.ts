@@ -64,7 +64,7 @@ Deno.serve(async req => {
   const { data: record, error: recordErr } = await admin
     .from("payment_records")
     .select(
-      "id, status, amount, flowaccount_document_id, flowaccount_document_number, receipt_path, issued_at, tasks!inner(id, type, company_id, companies(id, name, short, tax_id, address, branch_code, flowaccount_contact_id))"
+      "id, status, amount, flowaccount_invoice_id, flowaccount_invoice_number, flowaccount_document_id, flowaccount_document_number, receipt_path, issued_at, tasks!inner(id, type, company_id, companies(id, name, short, tax_id, address, branch_code, flowaccount_contact_id))"
     )
     .eq("id", recordId)
     .maybeSingle();
@@ -80,7 +80,7 @@ Deno.serve(async req => {
   const company = task.companies;
 
   const storePdf = async (accessToken: string, doc: IssuedDocument): Promise<string> => {
-    const path = await exportPdfToBucket(admin, accessToken, "receipts", doc, "receipts", company.id);
+    const path = await exportPdfToBucket(admin, accessToken, "receipt", doc, "receipts", company.id);
     const { error } = await admin.from("payment_records").update({ receipt_path: path }).eq("id", record.id);
     if (error) throw new Error(`receipt_path write failed: ${error.message}`);
     return path;
@@ -129,14 +129,56 @@ Deno.serve(async req => {
   try {
     const accessToken = await getAccessToken(admin);
     const contactId = await ensureContact(admin, accessToken, { ...company, tax_id: company.tax_id! });
-    const doc = await createDocument(accessToken, "receipts", {
+    const lines = [{ productName, amount: amountGross }];
+
+    // FlowAccount retired standalone receipts, so this filing needs an
+    // invoice to upgrade from. Staff never see it as a separate step -
+    // both documents are issued back to back from the one click - but
+    // it is persisted between them so a failure in the receipt leg
+    // resumes from the invoice already issued instead of creating a
+    // second one on the next click.
+    let invoiceDoc: IssuedDocument;
+    if (record.flowaccount_invoice_id) {
+      invoiceDoc = {
+        documentId: record.flowaccount_invoice_id,
+        documentNumber: record.flowaccount_invoice_number ?? record.flowaccount_invoice_id,
+      };
+    } else {
+      invoiceDoc = await createDocument(accessToken, "invoice", {
+        mockKey: `filing-${record.id}`,
+        contactId,
+        company,
+        lines,
+        amountGross,
+        whtRate,
+        whtAmount,
+        remarks: `ค่าบริการ${task.type}`,
+      });
+      const { data: invSaved, error: invErr } = await admin
+        .from("payment_records")
+        .update({ flowaccount_invoice_id: invoiceDoc.documentId, flowaccount_invoice_number: invoiceDoc.documentNumber })
+        .eq("id", record.id)
+        .is("flowaccount_invoice_id", null)
+        .select("id");
+      if (invErr) throw new Error(`payment_records invoice write failed: ${invErr.message}`);
+      if (!invSaved?.length) {
+        console.error(
+          `flowaccount-issue-receipt: lost invoice race for payment_records ${record.id} — invoice ${invoiceDoc.documentNumber} (${invoiceDoc.documentId}) is orphaned in FlowAccount and should be voided manually`
+        );
+        return json({ error: "มีการออกใบเสร็จรายการนี้พร้อมกันจากที่อื่น กรุณารีเฟรชแล้วตรวจสอบ" }, 409);
+      }
+    }
+
+    const doc = await createDocument(accessToken, "receipt", {
       mockKey: record.id,
       contactId,
       company,
-      lines: [{ productName, amount: amountGross }],
+      lines,
       amountGross,
       whtRate,
       whtAmount,
+      remarks: `รับชำระตามใบแจ้งหนี้ ${invoiceDoc.documentNumber}`,
+      reference: invoiceDoc,
     });
 
     // Persist the document BEFORE attempting the PDF. If the export (or
