@@ -29,6 +29,8 @@ POST /{path}/{id}/export-pdf/base64  → PDF (ส่งเข้า LINE)
 | export PDF | POST เปล่าๆ | ต้องมี `Content-Type: application/json` + body `{}` ไม่งั้น **415** |
 | ผลลัพธ์ contact | `data.id` | **`data.list[0].id`** (ตอบเป็น list แม้สร้างใบเดียว) |
 | ผลลัพธ์เอกสาร | `data.list[0]` | **`data`** ตรงๆ (`data.recordId`, `data.documentSerial`) |
+| อ่านเอกสารกลับ (GET by id) | เหมือนตอนสร้าง | **`data.list[0]`** — สลับกับตอน POST |
+| วันครบกำหนด | ส่ง `dueDate` ไปตรงๆ | **ถูกเมิน** — ระบบคำนวณเองจาก `publishedOn + creditDays` ต้องส่งเป็นจำนวนวัน |
 
 ## กับดักใหญ่: contact ซ้ำ
 

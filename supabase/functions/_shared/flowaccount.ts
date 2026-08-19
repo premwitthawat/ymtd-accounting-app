@@ -219,9 +219,18 @@ export async function createDocument(
   }
 
   const issuedOn = args.issuedOn ?? bangkokDate(new Date());
+  const dueDate = args.dueDate ?? issuedOn;
   // creditType 1 = credit terms (invoice, payable by dueDate),
   // 3 = settled immediately (receipt).
   const onCredit = kind === "invoice";
+  // FlowAccount derives the due date printed on the document from
+  // publishedOn + creditDays and ignores the dueDate field it is sent -
+  // verified in the sandbox, where invoices posted with creditDays 0
+  // came back due on their own issue date. So the term has to be
+  // expressed in days, not as a date. dueDate is still sent for the
+  // sake of a payload that says the same thing twice rather than
+  // contradicting itself.
+  const creditDays = onCredit ? Math.max(0, Math.round((Date.parse(dueDate) - Date.parse(issuedOn)) / 86_400_000)) : 0;
 
   const res = await flowFetch(`${BASE_URL}/${CREATE_PATH[kind]}`, {
     method: "POST",
@@ -236,8 +245,8 @@ export async function createDocument(
       contactGroup: 3,
       publishedOn: issuedOn,
       creditType: onCredit ? 1 : 3,
-      creditDays: 0,
-      dueDate: args.dueDate ?? issuedOn,
+      creditDays,
+      dueDate,
       isVatInclusive: false,
       useReceiptDeduction: false,
       subTotal: args.amountGross,
