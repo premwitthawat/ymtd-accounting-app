@@ -14,6 +14,11 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 export const BASE_URL = Deno.env.get("FLOWACCOUNT_BASE_URL") ?? "https://openapi.flowaccount.com/test";
 export const TOKEN_URL = Deno.env.get("FLOWACCOUNT_TOKEN_URL") ?? "https://openapi.flowaccount.com/test/token";
 export const MOCK = Deno.env.get("FLOWACCOUNT_MOCK") === "true";
+// The firm's own bank account in FlowAccount (MyCompany > ช่องทางการเงิน),
+// numeric id from GET /bank-accounts. Environment-specific, hence env
+// rather than a constant. Without it a receipt cannot record the
+// transfer that paid it - see createDocument.
+export const BANK_ACCOUNT_ID = Deno.env.get("FLOWACCOUNT_BANK_ACCOUNT_ID");
 
 // deno-lint-ignore no-explicit-any
 export type Admin = ReturnType<typeof createClient<any>>;
@@ -169,8 +174,19 @@ export type DocumentKind = "invoice" | "receipt";
 // receipt is an *upgrade* of an invoice that already exists. The paths
 // are asymmetric as a result: a receipt is created under /upgrade but
 // read (and exported) under /receipts.
-const CREATE_PATH: Record<DocumentKind, string> = { invoice: "tax-invoices", receipt: "upgrade/receipts" };
 const PDF_PATH: Record<DocumentKind, string> = { invoice: "tax-invoices", receipt: "receipts" };
+
+// A receipt is only ever issued because the client has already paid, so
+// it should land in FlowAccount as collected rather than as one more
+// document awaiting payment - otherwise the firm's own books show the
+// money as never received. Recording the payment needs the firm's bank
+// account id; when that is not configured the receipt is still issued,
+// just without the payment leg, because a client waiting on their
+// receipt should not be held hostage to a missing setting. Verified:
+// with-payment plus bankAccountId returns status "paid", and a transfer
+// without bankAccountId is rejected outright.
+const createPath = (kind: DocumentKind) =>
+  kind === "invoice" ? "tax-invoices" : BANK_ACCOUNT_ID ? "upgrade/receipts/with-payment" : "upgrade/receipts";
 
 // FlowAccount source-document enum for an upgrade (Quotations = 3,
 // Billing Notes = 5, Tax Invoices = 7). Ours always upgrade from the
@@ -232,7 +248,7 @@ export async function createDocument(
   // contradicting itself.
   const creditDays = onCredit ? Math.max(0, Math.round((Date.parse(dueDate) - Date.parse(issuedOn)) / 86_400_000)) : 0;
 
-  const res = await flowFetch(`${BASE_URL}/${CREATE_PATH[kind]}`, {
+  const res = await flowFetch(`${BASE_URL}/${createPath(kind)}`, {
     method: "POST",
     headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -265,6 +281,24 @@ export async function createDocument(
       showSignatureOrStamp: true,
       documentStructureType: "SimpleDocument",
       saleAndPurchaseChannel: 0,
+      ...(kind === "receipt" && BANK_ACCOUNT_ID
+        ? {
+            // paymentMethod 5 = transfer, which is how every client
+            // here pays (they send a slip into the LINE group).
+            documentPaymentStructureType: "SimpleDocumentWithPaymentReceivingTransfer",
+            paymentMethod: 5,
+            paymentDate: issuedOn,
+            collected: round2(args.amountGross - args.whtAmount),
+            paymentDeductionType: 0,
+            paymentDeductionAmount: 0,
+            withheldPercentage: args.whtRate,
+            withheldAmount: args.whtAmount,
+            bankAccountId: Number(BANK_ACCOUNT_ID),
+            paymentRemarks: "รับชำระโดยโอนเงิน",
+            remainingCollectedType: 0,
+            remainingCollected: 0,
+          }
+        : {}),
       ...(args.reference
         ? {
             documentReference: [
