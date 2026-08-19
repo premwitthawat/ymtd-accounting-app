@@ -12,7 +12,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 export const BASE_URL = Deno.env.get("FLOWACCOUNT_BASE_URL") ?? "https://openapi.flowaccount.com/test";
-export const TOKEN_URL = Deno.env.get("FLOWACCOUNT_TOKEN_URL") ?? "https://openapi.flowaccount.com/token";
+export const TOKEN_URL = Deno.env.get("FLOWACCOUNT_TOKEN_URL") ?? "https://openapi.flowaccount.com/test/token";
 export const MOCK = Deno.env.get("FLOWACCOUNT_MOCK") === "true";
 
 // deno-lint-ignore no-explicit-any
@@ -110,8 +110,16 @@ export interface CompanyIdentity {
 }
 
 // One FlowAccount contact per company, created lazily on first use and
-// cached on companies.flowaccount_contact_id so repeat documents don't
-// pile duplicates into the FlowAccount address book.
+// cached on companies.flowaccount_contact_id.
+//
+// The cache is not an optimisation, it is load-bearing. Verified in the
+// sandbox: a document posted *without* contactId silently creates a
+// brand-new contact every time (3 documents produced 3 duplicate
+// contacts), while a document posted with a contactCode that already
+// exists is rejected outright with ERROR.CONTACT_CODE_DUPLICATE. Only
+// the numeric contactId both links to the existing contact and creates
+// nothing new. At ~30 clients x 12 months x 2 documents, getting this
+// wrong would bury the firm address book in ~700 duplicates a year.
 export async function ensureContact(admin: Admin, accessToken: string, company: CompanyIdentity): Promise<string> {
   if (company.flowaccount_contact_id) return company.flowaccount_contact_id;
 
@@ -123,18 +131,24 @@ export async function ensureContact(admin: Admin, accessToken: string, company: 
       method: "POST",
       headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
       body: JSON.stringify({
-        name: company.name,
-        taxId: company.tax_id,
-        address: company.address ?? "",
-        branchCode: company.branch_code ?? "00000",
-        contactType: 3, // juristic person — every client billed through this app is one
+        contactName: company.name,
+        contactType: 3, // juristic person - every client billed through this app is one
+        contactGroup: 3, // customer
+        contactCode: `YMTD-${company.id}`,
+        contactAddress: company.address ?? "",
+        contactTaxId: company.tax_id,
+        contactBranch: "สำนักงานใหญ่",
+        contactBranchCode: company.branch_code ?? "00000",
       }),
     });
     const body = await res.json().catch(() => ({}));
-    if (!res.ok || body.status === false) {
+    // Contact responses come back paginated even for a single create:
+    // the new row is data.list[0], not data.
+    const created = body.data?.list?.[0];
+    if (!res.ok || body.status === false || !created?.id) {
       throw new Error(`FlowAccount contact create failed (${res.status}): ${JSON.stringify(body)}`);
     }
-    contactId = String(body.data?.id ?? body.data?.contactId ?? body.id);
+    contactId = String(created.id);
   }
 
   const { error } = await admin.from("companies").update({ flowaccount_contact_id: contactId }).eq("id", company.id);
@@ -147,15 +161,34 @@ export interface IssuedDocument {
   documentNumber: string;
 }
 
-export type DocumentKind = "receipts" | "billing-notes";
+export type DocumentKind = "invoice" | "receipt";
 
-const MOCK_NUMBER_PREFIX: Record<DocumentKind, string> = { receipts: "MOCKRE", "billing-notes": "MOCKINV" };
+// A receipt cannot be created on its own. POST /receipts answers
+// "Create Receipt API is obsoleted, please follow the Upgrade Receipt
+// procedure" and /receipts/with-payment answers the same, so every
+// receipt is an *upgrade* of an invoice that already exists. The paths
+// are asymmetric as a result: a receipt is created under /upgrade but
+// read (and exported) under /receipts.
+const CREATE_PATH: Record<DocumentKind, string> = { invoice: "tax-invoices", receipt: "upgrade/receipts" };
+const PDF_PATH: Record<DocumentKind, string> = { invoice: "tax-invoices", receipt: "receipts" };
 
-// Creates one document (receipt or billing note — FlowAccount's inline
-// document endpoints share a payload shape, only the path differs).
-// Field names follow the inline-document schema; exact acceptance can
-// only be proven against the sandbox once credentials arrive — flagged
-// in the work report, and isolated here so a rename lands in one place.
+// FlowAccount source-document enum for an upgrade (Quotations = 3,
+// Billing Notes = 5, Tax Invoices = 7). Ours always upgrade from the
+// tax invoice issued first.
+const REFERENCE_TYPE_TAX_INVOICE = 7;
+
+const MOCK_NUMBER_PREFIX: Record<DocumentKind, string> = { invoice: "MOCKINV", receipt: "MOCKRE" };
+
+const bangkokDate = (date: Date) => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Bangkok" }).format(date);
+
+// Creates one document. The payload shape is verified end to end against
+// the sandbox (INV2026080001 -> RE2026080001) rather than inferred: the
+// published Postman collection and the OpenAPI SDK both disagree with
+// the live API in several places, and the live API won.
+//
+// isVat is hard false - the firm bills accounting service fees and is
+// not VAT-registered. Withholding is per-document rather than per-item
+// because juristic clients withhold 3% on the whole service fee.
 export async function createDocument(
   accessToken: string,
   kind: DocumentKind,
@@ -167,6 +200,10 @@ export async function createDocument(
     amountGross: number;
     whtRate: number;
     whtAmount: number;
+    issuedOn?: string; // YYYY-MM-DD, defaults to today in Bangkok
+    dueDate?: string; // invoices only; defaults to issuedOn
+    remarks?: string;
+    reference?: IssuedDocument; // the invoice this receipt settles - required for kind "receipt"
   }
 ): Promise<IssuedDocument> {
   if (MOCK) {
@@ -177,48 +214,89 @@ export async function createDocument(
     };
   }
 
-  const res = await flowFetch(`${BASE_URL}/${kind}`, {
+  if (kind === "receipt" && !args.reference) {
+    throw new Error("createDocument: a receipt must reference the invoice it settles");
+  }
+
+  const issuedOn = args.issuedOn ?? bangkokDate(new Date());
+  // creditType 1 = credit terms (invoice, payable by dueDate),
+  // 3 = settled immediately (receipt).
+  const onCredit = kind === "invoice";
+
+  const res = await flowFetch(`${BASE_URL}/${CREATE_PATH[kind]}`, {
     method: "POST",
     headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
     body: JSON.stringify({
-      contactId: args.contactId,
+      recordId: 0,
+      contactId: Number(args.contactId),
       contactName: args.company.name,
-      contactTaxId: args.company.tax_id ?? "",
       contactAddress: args.company.address ?? "",
-      contactBranch: args.company.branch_code ?? "00000",
-      publishedOn: new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Bangkok" }).format(new Date()),
-      documentLines: args.lines.map(line => ({
-        productName: line.productName,
+      contactTaxId: args.company.tax_id ?? "",
+      contactBranch: "สำนักงานใหญ่",
+      contactGroup: 3,
+      publishedOn: issuedOn,
+      creditType: onCredit ? 1 : 3,
+      creditDays: 0,
+      dueDate: args.dueDate ?? issuedOn,
+      isVatInclusive: false,
+      useReceiptDeduction: false,
+      subTotal: args.amountGross,
+      discountPercentage: 0,
+      discountAmount: 0,
+      totalAfterDiscount: args.amountGross,
+      isVat: false,
+      vatAmount: 0,
+      grandTotal: args.amountGross,
+      documentShowWithholdingTax: args.whtRate > 0,
+      documentWithholdingTaxPercentage: args.whtRate,
+      documentWithholdingTaxAmount: args.whtAmount,
+      documentDeductionType: 0,
+      documentDeductionAmount: 0,
+      remarks: args.remarks ?? "",
+      showSignatureOrStamp: true,
+      documentStructureType: "SimpleDocument",
+      saleAndPurchaseChannel: 0,
+      ...(args.reference
+        ? {
+            documentReference: [
+              {
+                recordId: Number(args.reference.documentId),
+                referenceDocumentSerial: args.reference.documentNumber,
+                referenceDocumentType: REFERENCE_TYPE_TAX_INVOICE,
+              },
+            ],
+          }
+        : {}),
+      items: args.lines.map(line => ({
+        type: 1, // service
+        name: line.productName,
+        description: "",
         quantity: 1,
         unitName: "งาน",
         pricePerUnit: line.amount,
         total: line.amount,
       })),
-      subTotal: args.amountGross,
-      totalAfterDiscount: args.amountGross,
-      isVatInclusive: false,
-      grandTotal: args.amountGross,
-      withholdingTaxPercent: args.whtRate,
-      withholdingTaxAmount: args.whtAmount,
     }),
   });
   const body = await res.json().catch(() => ({}));
-  if (!res.ok || body.status === false) {
+  if (!res.ok || body.status === false || !body.data?.recordId) {
     throw new Error(`FlowAccount ${kind} create failed (${res.status}): ${JSON.stringify(body)}`);
   }
-  const doc = body.data ?? body;
   return {
-    documentId: String(doc.recordId ?? doc.documentId ?? doc.id),
-    documentNumber: String(doc.documentSerial ?? doc.documentNumber ?? doc.recordId ?? doc.id),
+    documentId: String(body.data.recordId),
+    documentNumber: String(body.data.documentSerial),
   };
 }
 
 export async function exportPdfBase64(accessToken: string, kind: DocumentKind, documentId: string): Promise<string> {
   if (MOCK) return MOCK_PDF_BASE64;
 
-  const res = await flowFetch(`${BASE_URL}/${kind}/${documentId}/export-pdf/base64`, {
+  // The empty JSON body is required, not cosmetic: a bodyless POST is
+  // rejected with 415 Unsupported Media Type.
+  const res = await flowFetch(`${BASE_URL}/${PDF_PATH[kind]}/${documentId}/export-pdf/base64`, {
     method: "POST",
-    headers: { Authorization: `Bearer ${accessToken}` },
+    headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+    body: "{}",
   });
   const body = await res.json().catch(() => ({}));
   if (!res.ok || body.status === false || !body.data) {
