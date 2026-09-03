@@ -75,7 +75,7 @@ supabase secrets set \
   FLOWACCOUNT_CLIENT_ID=<production client id> \
   FLOWACCOUNT_CLIENT_SECRET=<production client secret> \
   FLOWACCOUNT_BASE_URL=https://openapi.flowaccount.com/v1 \
-  FLOWACCOUNT_TOKEN_URL=https://openapi.flowaccount.com/token \
+  FLOWACCOUNT_TOKEN_URL=https://openapi.flowaccount.com/v1/token \
   FLOWACCOUNT_MOCK=false \
   FLOWACCOUNT_BANK_ACCOUNT_ID=<เลขจากด้านล่าง>
 
