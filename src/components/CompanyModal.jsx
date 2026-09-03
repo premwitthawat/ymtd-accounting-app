@@ -14,6 +14,8 @@ const blankState = {
   otherEnabled: false,
   otherText: "",
   otherDueDay: 20,
+  monthlyFee: "",
+  clientWithholds: false,
 };
 
 const blankNewType = { name: "", dueDay: 20, color: PALETTE_KEYS[0] };
@@ -139,7 +141,15 @@ export default function CompanyModal({
 
     if (standardServices.length === 0 && customServices.length === 0) return;
 
-    onSubmit({ name: form.name.trim(), short: form.short.trim(), owner: form.owner, services: standardServices, customServices });
+    onSubmit({
+      name: form.name.trim(),
+      short: form.short.trim(),
+      owner: form.owner,
+      services: standardServices,
+      customServices,
+      monthlyFee: form.monthlyFee === "" ? null : Number(form.monthlyFee),
+      whtRate: form.clientWithholds ? 3 : 0,
+    });
   };
 
   return (
@@ -194,6 +204,33 @@ export default function CompanyModal({
               ))}
             </select>
           </label>
+
+          <div className="flex flex-col gap-1.5 rounded-lg border border-slate-200 p-3 text-sm">
+            <label className="flex flex-col gap-1">
+              <span className="font-semibold text-slate-700">ค่าบริการรายเดือน (บาท)</span>
+              <input
+                type="number"
+                min={0}
+                step="0.01"
+                value={form.monthlyFee}
+                onChange={e => setForm(f => ({ ...f, monthlyFee: e.target.value }))}
+                placeholder="เว้นว่าง = ไม่ออกใบแจ้งหนี้อัตโนมัติ"
+                className="rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-brand-navy focus:ring-1 focus:ring-brand-navy focus:outline-none"
+              />
+              <span className="text-xs text-slate-400">
+                ระบบออกใบแจ้งหนี้ยอดนี้ (+รายการพิเศษถ้ามี) ทุกเช้าวันที่ 1 และส่งเข้ากลุ่ม LINE ของบริษัทอัตโนมัติ
+              </span>
+            </label>
+            <label className="flex cursor-pointer items-center gap-2 text-xs font-semibold text-slate-700">
+              <input
+                type="checkbox"
+                checked={form.clientWithholds}
+                onChange={e => setForm(f => ({ ...f, clientWithholds: e.target.checked }))}
+                className="accent-brand-navy"
+              />
+              ลูกค้าหักภาษี ณ ที่จ่าย 3% (นิติบุคคล) — ใบแจ้งหนี้/ใบเสร็จจะแสดงยอดหักและยอดสุทธิให้เอง
+            </label>
+          </div>
 
           <div className="flex flex-col gap-1.5 text-sm">
             <span className="font-semibold text-slate-700">บริการที่ต้องทำ</span>

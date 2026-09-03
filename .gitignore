@@ -3,3 +3,6 @@
 .env.*.local
 node_modules/
 dist/
+
+# draw.io desktop backup files
+.$*.bkp

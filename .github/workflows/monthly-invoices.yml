@@ -1,0 +1,41 @@
+name: Monthly service invoices
+
+on:
+  schedule:
+    # 08:30 Asia/Bangkok (UTC+7) on the 1st = 01:30 UTC. One run issues
+    # every company's invoice for the new month and pushes each PDF into
+    # its LINE group once — no follow-up reminders (the daily-reminders
+    # workflow chases tax payments only, by explicit instruction).
+    # GitHub cron is best-effort; the function computes the billing
+    # period from Asia/Bangkok wall-clock at runtime, and re-runs skip
+    # companies already invoiced, so a late or repeated firing never
+    # double-bills.
+    - cron: "30 1 1 * *"
+  workflow_dispatch: {} # re-run/test on demand from the Actions tab
+
+jobs:
+  generate-invoices:
+    runs-on: ubuntu-latest
+    steps:
+      # No checkout: the logic lives in the flowaccount-invoices Edge
+      # Function (shared FlowAccount client, mock mode, idempotency) —
+      # this job is only the alarm clock that calls it.
+      - name: Generate and send invoices
+        run: |
+          response=$(curl -sf -X POST "$SUPABASE_URL/functions/v1/flowaccount-invoices" \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            -H "Content-Type: application/json" \
+            -d '{"action":"generate"}')
+          echo "$response"
+          # Surface partial failures as a red run worth a look — the
+          # function returns 200 with per-company results so one broken
+          # company (e.g. missing tax_id) doesn't hide the rest.
+          echo "$response" | jq -e '.failed | length == 0' > /dev/null
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          # Not SUPABASE_SERVICE_ROLE_KEY: the repo secret is a legacy JWT
+          # while the edge runtime injects the new sb_secret format, so the
+          # function's key comparison can never match it. CRON_SECRET is a
+          # dedicated shared secret set on BOTH GitHub and supabase secrets,
+          # independent of whichever key format the platform injects.
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}

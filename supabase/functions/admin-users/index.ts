@@ -52,9 +52,38 @@ Deno.serve(async req => {
   const action = body.action;
 
   if (action === "list") {
-    const { data, error } = await admin.from("profiles").select("id, username, role, label, active, created_at").order("created_at");
+    const { data, error } = await admin.from("profiles").select("id, username, role, label, active, line_user_id, created_at").order("created_at");
     if (error) return json({ error: error.message }, 400);
     return json({ users: data });
+  }
+
+  // Links a staff account to their LINE user id (018) so line-webhook
+  // can verify who typed a chat command — required (no fail-open) for
+  // "paid", transition-optional for "clear". Staff get their own id by
+  // DMing "myid" to the bot. Empty id unlinks.
+  if (action === "set-line-id") {
+    const id = String(body.id ?? "");
+    const lineUserId = String(body.line_user_id ?? "").trim();
+    if (!id) return json({ error: "Missing id" }, 400);
+    // LINE user ids look like U + 32 hex chars — reject anything else
+    // early so a stray paste (a display name, a groupId starting with C)
+    // can't silently create a check that never matches anyone.
+    if (lineUserId && !/^U[0-9a-f]{32}$/.test(lineUserId)) {
+      return json({ error: "รูปแบบ LINE ID ไม่ถูกต้อง — ต้องขึ้นต้นด้วย U ตามด้วยตัวอักษร/เลข 32 ตัว (พิมพ์ myid ใส่แชทส่วนตัวของบอทเพื่อดูค่า)" }, 400);
+    }
+
+    if (callerProfile.role === "manager") {
+      const { data: target } = await admin.from("profiles").select("role").eq("id", id).single();
+      if (target?.role === "owner") {
+        return json({ error: "ผู้จัดการไม่มีสิทธิ์แก้ไขบัญชีเจ้าของ" }, 403);
+      }
+    }
+
+    const { error } = await admin.from("profiles").update({ line_user_id: lineUserId || null }).eq("id", id);
+    if (error) {
+      return json({ error: error.message.includes("duplicate") ? "LINE ID นี้ถูกผูกกับบัญชีอื่นแล้ว" : error.message }, 400);
+    }
+    return json({ ok: true });
   }
 
   if (action === "create") {

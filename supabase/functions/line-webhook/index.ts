@@ -35,6 +35,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 interface LineEvent {
   type: string;
+  replyToken?: string;
   source?: { type: string; groupId?: string; userId?: string; roomId?: string };
   message?: { id: string; type: string; text?: string };
   [key: string]: unknown;
@@ -175,6 +176,113 @@ async function handleSlipImage(groupId: string, messageId: string, accessToken: 
   console.log(`line-webhook: payment_records ${record.id} -> pending_review, slip=${fileName}`);
 }
 
+// "clear" arrives in a *client-facing* group chat, so the client can
+// type it just as easily as staff — and once payment status feeds the
+// FlowAccount receipt flow, honoring it blindly would let a client
+// steer records toward tax-document issuance. LINE events carry the
+// sender's userId; only accept the command when it maps to a staff
+// profile (018_staff_line_users.sql).
+//
+// TRANSITION STATE: while no profile has a line_user_id linked yet, the
+// check fails open (any sender accepted, exactly the old behavior) —
+// otherwise merging this would instantly break the "clear" workflow the
+// office uses today. Once even one staff userId is linked, enforcement
+// turns on for everyone. Link them promptly.
+async function isStaffLineUser(userId: string | undefined): Promise<boolean> {
+  const { data: linked, error: linkedErr } = await supabase
+    .from("profiles")
+    .select("id, line_user_id, active")
+    .not("line_user_id", "is", null);
+  if (linkedErr) throw new Error(`profiles lookup failed: ${linkedErr.message}`);
+  if (!linked || linked.length === 0) return true; // fail open — see TRANSITION STATE above
+  if (!userId) return false;
+  return linked.some(p => p.line_user_id === userId && p.active);
+}
+
+// Strict variant of the check above, for the "paid" command — NO
+// transition fail-open: "paid" issues a real tax document and messages
+// the client, so an unlinked staff roster means the command simply
+// doesn't work yet, never that anyone in the group can fire it.
+async function isLinkedStaff(userId: string | undefined): Promise<boolean> {
+  if (!userId) return false;
+  const { data, error } = await supabase
+    .from("profiles")
+    .select("id")
+    .eq("line_user_id", userId)
+    .eq("active", true)
+    .maybeSingle();
+  if (error) throw new Error(`profiles lookup failed: ${error.message}`);
+  return !!data;
+}
+
+// Staff typed "paid" after seeing the transfer in this chat: settle the
+// company's oldest unpaid monthly invoice. The heavy lifting — mark
+// paid, auto-issue the receipt, push the PDF back into this very group
+// — all lives in flowaccount-invoices; this stays a thin dispatcher so
+// the two entry points (app button, chat command) can't drift apart.
+async function handlePaidCommand(groupId: string) {
+  const { data: company, error: companyErr } = await supabase
+    .from("companies")
+    .select("id, short")
+    .eq("line_group_id", groupId)
+    .maybeSingle();
+  if (companyErr) throw new Error(`company lookup failed: ${companyErr.message}`);
+  if (!company) {
+    console.warn(`line-webhook: groupId=${groupId} has no linked company, ignoring "paid"`);
+    return;
+  }
+
+  // ทุกใบที่ค้าง ไม่ใช่แค่ใบเก่าสุด: ลูกค้าที่ค้างหลายงวดได้รับใบวางบิลรวมและโอนก้อนเดียว
+  // "paid" ครั้งเดียวจึงต้องปิดครบทุกงวด (เรียงเก่า → ใหม่ ใบเสร็จออกทีละใบตามงวด)
+  // งวดไหนล้มก็หยุดตรงนั้น — งวดก่อนหน้าที่ปิดแล้วไม่ถูกย้อน พิมพ์ "paid" ซ้ำเก็บที่เหลือได้
+  // สองเงื่อนไข ไม่ใช่แค่ unpaid: mark-paid สลับสถานะเป็น paid ก่อนออกใบเสร็จ ถ้าออก
+  // ใบเสร็จพลาด แถวจะเป็น paid-แต่ไร้ใบเสร็จ ซึ่งเงื่อนไข unpaid เฉย ๆ มองไม่เห็น —
+  // การพิมพ์ "paid" ซ้ำต้องเก็บแถวพวกนั้นด้วย (mark-paid มี heal path อยู่แล้ว)
+  // และกรองใบที่ generate ยังออกใน FlowAccount ไม่สำเร็จออก — mark-paid ตอบ 400 กับ
+  // ใบพวกนั้น ถ้าปล่อยเข้าลูป ใบเดียวจะบล็อกทุกงวดที่เหลือตลอดไป (รอ generate heal)
+  const { data: invoices, error: invoiceErr } = await supabase
+    .from("company_invoices")
+    .select("id, period, status")
+    .eq("company_id", company.id)
+    .or("status.eq.unpaid,and(status.eq.paid,receipt_path.is.null)")
+    .not("flowaccount_document_id", "is", null)
+    .order("period", { ascending: true });
+  if (invoiceErr) throw new Error(`company_invoices lookup failed: ${invoiceErr.message}`);
+  if (!invoices?.length) {
+    console.warn(`line-webhook: company_id=${company.id} (${company.short}) has no unpaid invoice, ignoring "paid"`);
+    return;
+  }
+
+  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+  for (const invoice of invoices) {
+    const res = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/flowaccount-invoices`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKey}`, apikey: serviceKey },
+      body: JSON.stringify({ action: "mark-paid", invoice_id: invoice.id }),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(`mark-paid failed for ${invoice.period} (${res.status}): ${JSON.stringify(body)}`);
+    console.log(`line-webhook: invoice ${invoice.id} (${company.short} ${invoice.period}) paid via "paid", receipt ${body.receipt_document_number}`);
+  }
+}
+
+// "myid" in a DIRECT chat with the bot replies with the sender's LINE
+// userId so staff can paste it into the admin panel's LINE link field.
+// Replying here doesn't break the never-post-in-client-groups rule
+// (011_line_groups.sql): this branch only ever fires for 1:1 chats,
+// which only staff setting themselves up would open.
+async function replyMyId(replyToken: string, userId: string | undefined, accessToken: string) {
+  const res = await fetch("https://api.line.me/v2/bot/message/reply", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+    body: JSON.stringify({
+      replyToken,
+      messages: [{ type: "text", text: userId ? `LINE ID ของคุณคือ:\n${userId}\n\nนำไปกรอกในหน้า "จัดการผู้ใช้" ของระบบเพื่อผูกบัญชี` : "ไม่พบ userId ในข้อความนี้" }],
+    }),
+  });
+  if (!res.ok) throw new Error(`LINE reply failed (${res.status}): ${await res.text()}`);
+}
+
 // Closes out the company's oldest awaiting-payment record as 'paid'
 // with no slip involved — staff typed "clear" because they already
 // know it's settled (told in the chat, or reviewed a slip that isn't
@@ -271,6 +379,39 @@ Deno.serve(async req => {
       // Trimmed + case-insensitive so "Clear" / "CLEAR" / trailing
       // whitespace from a mobile keyboard all still match — this is
       // typed under time pressure in a chat, not a form field.
+      // "paid" — settle the monthly invoice + auto-receipt into the
+      // group. Strict staff-only (no fail-open), unlike "clear" below.
+      if (
+        event.type === "message" &&
+        event.message?.type === "text" &&
+        event.message.text?.trim().toLowerCase() === "paid" &&
+        event.source?.type === "group" &&
+        event.source.groupId
+      ) {
+        if (await isLinkedStaff(event.source.userId)) {
+          await handlePaidCommand(event.source.groupId);
+        } else {
+          console.warn(
+            `line-webhook: ignoring "paid" from unlinked userId=${event.source.userId ?? "(none)"} in groupId=${event.source.groupId}`
+          );
+        }
+      }
+
+      // "myid" in a direct chat — self-service lookup for linking.
+      if (
+        event.type === "message" &&
+        event.message?.type === "text" &&
+        event.message.text?.trim().toLowerCase() === "myid" &&
+        event.source?.type === "user" &&
+        event.replyToken
+      ) {
+        if (!accessToken) {
+          console.error("line-webhook: LINE_CHANNEL_ACCESS_TOKEN not set, cannot reply to myid");
+        } else {
+          await replyMyId(event.replyToken, event.source.userId, accessToken);
+        }
+      }
+
       if (
         event.type === "message" &&
         event.message?.type === "text" &&
@@ -278,7 +419,17 @@ Deno.serve(async req => {
         event.source?.type === "group" &&
         event.source.groupId
       ) {
-        await handleClearCommand(event.source.groupId);
+        if (await isStaffLineUser(event.source.userId)) {
+          await handleClearCommand(event.source.groupId);
+        } else {
+          // Silent by design: the bot never posts in client-facing
+          // groups (011_line_groups.sql), and replying "permission
+          // denied" would both break that rule and advertise the
+          // command's existence to the client who just tried it.
+          console.warn(
+            `line-webhook: ignoring "clear" from non-staff userId=${event.source.userId ?? "(none)"} in groupId=${event.source.groupId}`
+          );
+        }
       }
     } catch (err) {
       console.error("line-webhook: error handling event", event, err);
