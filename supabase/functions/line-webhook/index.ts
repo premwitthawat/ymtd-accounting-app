@@ -232,29 +232,38 @@ async function handlePaidCommand(groupId: string) {
     return;
   }
 
-  const { data: invoice, error: invoiceErr } = await supabase
+  // ทุกใบที่ค้าง ไม่ใช่แค่ใบเก่าสุด: ลูกค้าที่ค้างหลายงวดได้รับใบวางบิลรวมและโอนก้อนเดียว
+  // "paid" ครั้งเดียวจึงต้องปิดครบทุกงวด (เรียงเก่า → ใหม่ ใบเสร็จออกทีละใบตามงวด)
+  // งวดไหนล้มก็หยุดตรงนั้น — งวดก่อนหน้าที่ปิดแล้วไม่ถูกย้อน พิมพ์ "paid" ซ้ำเก็บที่เหลือได้
+  // สองเงื่อนไข ไม่ใช่แค่ unpaid: mark-paid สลับสถานะเป็น paid ก่อนออกใบเสร็จ ถ้าออก
+  // ใบเสร็จพลาด แถวจะเป็น paid-แต่ไร้ใบเสร็จ ซึ่งเงื่อนไข unpaid เฉย ๆ มองไม่เห็น —
+  // การพิมพ์ "paid" ซ้ำต้องเก็บแถวพวกนั้นด้วย (mark-paid มี heal path อยู่แล้ว)
+  // และกรองใบที่ generate ยังออกใน FlowAccount ไม่สำเร็จออก — mark-paid ตอบ 400 กับ
+  // ใบพวกนั้น ถ้าปล่อยเข้าลูป ใบเดียวจะบล็อกทุกงวดที่เหลือตลอดไป (รอ generate heal)
+  const { data: invoices, error: invoiceErr } = await supabase
     .from("company_invoices")
-    .select("id, period")
+    .select("id, period, status")
     .eq("company_id", company.id)
-    .eq("status", "unpaid")
-    .order("period", { ascending: true })
-    .limit(1)
-    .maybeSingle();
+    .or("status.eq.unpaid,and(status.eq.paid,receipt_path.is.null)")
+    .not("flowaccount_document_id", "is", null)
+    .order("period", { ascending: true });
   if (invoiceErr) throw new Error(`company_invoices lookup failed: ${invoiceErr.message}`);
-  if (!invoice) {
+  if (!invoices?.length) {
     console.warn(`line-webhook: company_id=${company.id} (${company.short}) has no unpaid invoice, ignoring "paid"`);
     return;
   }
 
   const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-  const res = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/flowaccount-invoices`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKey}`, apikey: serviceKey },
-    body: JSON.stringify({ action: "mark-paid", invoice_id: invoice.id }),
-  });
-  const body = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(`mark-paid failed (${res.status}): ${JSON.stringify(body)}`);
-  console.log(`line-webhook: invoice ${invoice.id} (${company.short} ${invoice.period}) paid via "paid", receipt ${body.receipt_document_number}`);
+  for (const invoice of invoices) {
+    const res = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/flowaccount-invoices`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKey}`, apikey: serviceKey },
+      body: JSON.stringify({ action: "mark-paid", invoice_id: invoice.id }),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(`mark-paid failed for ${invoice.period} (${res.status}): ${JSON.stringify(body)}`);
+    console.log(`line-webhook: invoice ${invoice.id} (${company.short} ${invoice.period}) paid via "paid", receipt ${body.receipt_document_number}`);
+  }
 }
 
 // "myid" in a DIRECT chat with the bot replies with the sender's LINE

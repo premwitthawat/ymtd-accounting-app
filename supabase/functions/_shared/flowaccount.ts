@@ -166,7 +166,11 @@ export interface IssuedDocument {
   documentNumber: string;
 }
 
-export type DocumentKind = "invoice" | "receipt";
+// "billing" is a combined billing note (ใบวางบิลรวม): a presentation document
+// listing every month a client still owes, sent as ONE link so the client sees
+// one total to transfer — while the underlying invoices stay one-per-month for
+// bookkeeping. It carries no payment leg and settles nothing by itself.
+export type DocumentKind = "invoice" | "receipt" | "billing";
 
 // A receipt cannot be created on its own. POST /receipts answers
 // "Create Receipt API is obsoleted, please follow the Upgrade Receipt
@@ -174,7 +178,7 @@ export type DocumentKind = "invoice" | "receipt";
 // receipt is an *upgrade* of an invoice that already exists. The paths
 // are asymmetric as a result: a receipt is created under /upgrade but
 // read (and exported) under /receipts.
-const PDF_PATH: Record<DocumentKind, string> = { invoice: "tax-invoices", receipt: "receipts" };
+const PDF_PATH: Record<DocumentKind, string> = { invoice: "tax-invoices", receipt: "receipts", billing: "billing-notes" };
 
 // A receipt is only ever issued because the client has already paid, so
 // it should land in FlowAccount as collected rather than as one more
@@ -186,14 +190,28 @@ const PDF_PATH: Record<DocumentKind, string> = { invoice: "tax-invoices", receip
 // with-payment plus bankAccountId returns status "paid", and a transfer
 // without bankAccountId is rejected outright.
 const createPath = (kind: DocumentKind) =>
-  kind === "invoice" ? "tax-invoices" : BANK_ACCOUNT_ID ? "upgrade/receipts/with-payment" : "upgrade/receipts";
+  kind === "invoice" ? "tax-invoices"
+  : kind === "billing" ? "billing-notes"
+  : BANK_ACCOUNT_ID ? "upgrade/receipts/with-payment" : "upgrade/receipts";
+
+// ลบได้เฉพาะเอกสารสถานะรอดำเนินการ (FlowAccount ลบแบบ soft) — ใช้เก็บกวาดใบวางบิลรวม
+// ฉบับเก่าเมื่อออกฉบับใหม่หรือเมื่อหนี้หมด ล้มเหลวไม่ถือเป็นเรื่องคอขาดบาดตาย (เช่น
+// ใบถูกลบไปแล้วจากหน้าเว็บ) ผู้เรียกจึงควร catch แล้ว log เอง
+export async function deleteDocument(accessToken: string, kind: DocumentKind, documentId: string): Promise<void> {
+  if (MOCK) return;
+  const res = await flowFetch(`${BASE_URL}/${PDF_PATH[kind]}/${documentId}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+  });
+  if (!res.ok) throw new Error(`FlowAccount ${kind} delete failed (${res.status}): ${await res.text()}`);
+}
 
 // FlowAccount source-document enum for an upgrade (Quotations = 3,
 // Billing Notes = 5, Tax Invoices = 7). Ours always upgrade from the
 // tax invoice issued first.
 const REFERENCE_TYPE_TAX_INVOICE = 7;
 
-const MOCK_NUMBER_PREFIX: Record<DocumentKind, string> = { invoice: "MOCKINV", receipt: "MOCKRE" };
+const MOCK_NUMBER_PREFIX: Record<DocumentKind, string> = { invoice: "MOCKINV", receipt: "MOCKRE", billing: "MOCKBL" };
 
 const bangkokDate = (date: Date) => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Bangkok" }).format(date);
 
@@ -236,9 +254,9 @@ export async function createDocument(
 
   const issuedOn = args.issuedOn ?? bangkokDate(new Date());
   const dueDate = args.dueDate ?? issuedOn;
-  // creditType 1 = credit terms (invoice, payable by dueDate),
+  // creditType 1 = credit terms (invoice/billing note, payable by dueDate),
   // 3 = settled immediately (receipt).
-  const onCredit = kind === "invoice";
+  const onCredit = kind !== "receipt";
   // FlowAccount derives the due date printed on the document from
   // publishedOn + creditDays and ignores the dueDate field it is sent -
   // verified in the sandbox, where invoices posted with creditDays 0

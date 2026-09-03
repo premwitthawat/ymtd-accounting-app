@@ -23,8 +23,7 @@ jobs:
       - name: Generate and send invoices
         run: |
           response=$(curl -sf -X POST "$SUPABASE_URL/functions/v1/flowaccount-invoices" \
-            -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
-            -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
+            -H "Authorization: Bearer $CRON_SECRET" \
             -H "Content-Type: application/json" \
             -d '{"action":"generate"}')
           echo "$response"
@@ -34,4 +33,9 @@ jobs:
           echo "$response" | jq -e '.failed | length == 0' > /dev/null
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          # Not SUPABASE_SERVICE_ROLE_KEY: the repo secret is a legacy JWT
+          # while the edge runtime injects the new sb_secret format, so the
+          # function's key comparison can never match it. CRON_SECRET is a
+          # dedicated shared secret set on BOTH GitHub and supabase secrets,
+          # independent of whichever key format the platform injects.
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
