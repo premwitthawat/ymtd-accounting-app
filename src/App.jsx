@@ -87,6 +87,15 @@ export default function App() {
   const [selectedPeriod, setSelectedPeriod] = useState(currentPeriod);
   const isCurrentPeriod = selectedPeriod === currentPeriod;
   const canReassign = !isEmployee && isCurrentPeriod;
+  // Work finished after month-end still has to be closeable — a filing done
+  // on the 2nd for the month that ended on the 30th would otherwise sit
+  // "overdue" forever ("อยากให้มันแก้ไขได้ค่ะ"). Owner/manager may fix task
+  // rows in any past month; employees keep the read-only view. Reassigning
+  // and the month-wide due-day panel stay current-month only (canReassign):
+  // moving owners around in a closed month rewrites that month's per-person
+  // history, which is exactly what periodOwners exists to protect.
+  const canEditPeriod = isCurrentPeriod || !isEmployee;
+  const pastPeriodLocked = "เดือนย้อนหลังแก้ไขได้เฉพาะผู้จัดการ/เจ้าของ";
   const shiftPeriod = delta => {
     const [y, m] = selectedPeriod.split("-").map(Number);
     const d = new Date(y, m - 1 + delta, 1);
@@ -351,7 +360,7 @@ export default function App() {
   };
 
   const setStatus = async (key, status, note = "") => {
-    if (!isCurrentPeriod) return notifyError("กำลังดูข้อมูลย้อนหลัง ไม่สามารถแก้ไขได้");
+    if (!canEditPeriod) return notifyError(pastPeriodLocked);
     const { error } = await supabase
       .from("tasks")
       .update({ status, note: note || (status === "skipped" ? "ไม่มีรายการเดือนนี้" : ""), updated_at: new Date().toISOString() })
@@ -368,7 +377,7 @@ export default function App() {
   const restore = t => setStatus(t.key, "pending");
 
   const setPaymentStatus = async (key, paymentStatus) => {
-    if (!isCurrentPeriod) return notifyError("กำลังดูข้อมูลย้อนหลัง ไม่สามารถแก้ไขได้");
+    if (!canEditPeriod) return notifyError(pastPeriodLocked);
     const { error } = await supabase.from("tasks").update({ payment_status: paymentStatus }).eq("key", key);
     if (error) {
       console.error(error);
@@ -378,7 +387,7 @@ export default function App() {
   };
 
   const markCompanyPaid = async keys => {
-    if (!isCurrentPeriod) return notifyError("กำลังดูข้อมูลย้อนหลัง ไม่สามารถแก้ไขได้");
+    if (!canEditPeriod) return notifyError(pastPeriodLocked);
     const { error } = await supabase.from("tasks").update({ payment_status: "paid" }).in("key", keys);
     if (error) {
       console.error(error);
@@ -388,7 +397,7 @@ export default function App() {
   };
 
   const setDueDate = async (key, dueDateStr) => {
-    if (!isCurrentPeriod) return notifyError("กำลังดูข้อมูลย้อนหลัง ไม่สามารถแก้ไขได้");
+    if (!canEditPeriod) return notifyError(pastPeriodLocked);
     const { error } = await supabase.from("tasks").update({ due_date: dueDateStr }).eq("key", key);
     if (error) {
       console.error(error);
@@ -480,7 +489,7 @@ export default function App() {
   };
 
   const markGroupDone = async dayTasks => {
-    if (!isCurrentPeriod) return notifyError("กำลังดูข้อมูลย้อนหลัง ไม่สามารถแก้ไขได้");
+    if (!canEditPeriod) return notifyError(pastPeriodLocked);
     const { error } = await supabase
       .from("tasks")
       .update({ status: "done", updated_at: new Date().toISOString() })
@@ -649,6 +658,7 @@ export default function App() {
           monthLabel={`งานประจำเดือน ${selectedMonthAbbrev} ${selectedYearLabel}`}
           monthAbbrev={monthAbbrev}
           isCurrentPeriod={isCurrentPeriod}
+          canEditPeriod={canEditPeriod}
           onPrevMonth={() => shiftPeriod(-1)}
           onNextMonth={() => shiftPeriod(1)}
           onGoToCurrent={goToCurrentPeriod}

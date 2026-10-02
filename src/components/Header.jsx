@@ -14,6 +14,7 @@ export default function Header({
   monthLabel,
   monthAbbrev,
   isCurrentPeriod,
+  canEditPeriod,
   onPrevMonth,
   onNextMonth,
   onGoToCurrent,
@@ -67,7 +68,7 @@ export default function Header({
               {!isCurrentPeriod && (
                 <div className="ml-2 flex items-center gap-2">
                   <span className="rounded-full bg-brand-gold/20 px-2 py-0.5 text-[11px] font-semibold text-brand-gold">
-                    ดูย้อนหลัง · อ่านอย่างเดียว
+                    {canEditPeriod ? "ดูย้อนหลัง · แก้สถานะงานได้" : "ดูย้อนหลัง · อ่านอย่างเดียว"}
                   </span>
                   <button onClick={onGoToCurrent} className="text-[11px] font-semibold text-white/60 underline hover:text-white">
                     กลับเดือนปัจจุบัน
